@@ -39,7 +39,7 @@ function fixture(): Save {
     best: 0,
     freeBest: 0,
     totalPairs: 0,
-    settings: { sound: true, motion: true },
+    settings: { sound: true, motion: true, volume: 0.8 },
     sessions: { journey: g },
   };
 }
@@ -224,6 +224,16 @@ test("import refuses malformed or incompatible files without coercing them", () 
   ]) {
     const s = fixture();
     change(s);
+    assert.throws(() => parseSave(JSON.stringify(s)));
+  }
+});
+
+test("legacy volume migrates and malformed volume is rejected", () => {
+  const s = fixture();
+  delete (s.settings as Partial<Save["settings"]>).volume;
+  assert.equal(parseSave(JSON.stringify(s)).settings.volume, 0.8);
+  for (const volume of [-1, 1.1, null, "loud"]) {
+    (s.settings as any).volume = volume;
     assert.throws(() => parseSave(JSON.stringify(s)));
   }
 });

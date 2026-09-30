@@ -36,7 +36,7 @@ export type Save = {
   best: number;
   freeBest: number;
   totalPairs: number;
-  settings: { sound: boolean; motion: boolean };
+  settings: { sound: boolean; motion: boolean; volume: number };
   sessions: Partial<Record<Mode, Game>>;
 };
 const KEY = "jelly-grove.save.v1";
@@ -50,6 +50,7 @@ export function emptySave(): Save {
     totalPairs: 0,
     settings: {
       sound: true,
+      volume: 0.8,
       motion: !matchMedia("(prefers-reduced-motion: reduce)").matches,
     },
     sessions: {},
@@ -238,6 +239,9 @@ export function parseSave(raw: string): Save {
     )
   )
     throw new Error("这份存档不属于果冻果园，或内容已经损坏。");
+  // Existing v1 exports predate the volume slider.
+  if (s.settings.volume === undefined) s.settings.volume = 0.8;
+  if (!numeric(s.settings.volume, 0, 1)) throw new Error("音效音量设置无效。");
   for (const mode of ["journey", "free", "sprint"] as Mode[])
     if (Object.hasOwn(s.sessions, mode) && !validGame(s.sessions[mode]!, mode))
       throw new Error("棋局数据不完整，无法恢复这份存档。");

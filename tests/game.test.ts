@@ -116,3 +116,17 @@ test("combo window and fever use elapsed game time, and a clear does not award t
   reconcileGame(g, LEVELS[0]);
   assert.equal(g.score, score);
 });
+
+test("completion retains the final match combo for feedback despite resetting gameplay", () => {
+  for (const mode of ["journey", "sprint"] as const) {
+    const g = lastPair(mode);
+    g.combo = 7;
+    g.bestCombo = 7;
+    g.fever = 5000;
+    const out = commitMatch(g, findPairs(g.board, 1)[0], LEVELS[0]);
+    assert.equal(out.combo, 8);
+    assert.equal(out.fever, true);
+    assert.equal(out.clearedBoard, true);
+    assert.equal(g.combo, 0);
+  }
+});

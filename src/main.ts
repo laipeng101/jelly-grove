@@ -14,7 +14,7 @@ import {
   type Level,
 } from "./engine";
 import { fruitSVG, FRUITS, icon } from "./art";
-import { initAudio, setSound, sound } from "./audio";
+import { initAudio, setSound, setVolume, stopAudio, sound } from "./audio";
 import {
   COMBO_WINDOW,
   advanceGame,
@@ -123,6 +123,7 @@ function newGame(mode: Mode, level = 1, difficulty = 1) {
   hintPair = [];
   busy = false;
   animation++;
+  stopAudio();
   paused = false;
   pendingClicks = [];
   timer = performance.now();
@@ -176,6 +177,7 @@ function starsEarned() {
 function render() {
   hudCache.clear();
   setSound(data.settings.sound);
+  setVolume(data.settings.volume);
   document.documentElement.classList.toggle(
     "reduce-motion",
     !data.settings.motion,
@@ -519,9 +521,18 @@ async function match(a: Point, b: Point, path: Point[]) {
   recordResult();
   const pop = $("particles").querySelector(".score-pop:last-child");
   if (pop) pop.textContent = `+${outcome.points}`;
-  sound("match", Math.max(1, g.combo));
+  sound("match", {
+    fruit,
+    combo: outcome.combo,
+    fever: outcome.fever,
+    startedFever: outcome.startedFever,
+    cleared: outcome.clearedBoard
+      ? g.mode === "sprint"
+        ? "round"
+        : "win"
+      : undefined,
+  });
   if (outcome.startedFever && g.phase === "playing") {
-    sound("fever");
     announce("缤纷时刻", "甜度翻倍 · 10 秒");
   }
   selected = null;
@@ -542,7 +553,6 @@ async function match(a: Point, b: Point, path: Point[]) {
     if (g.mode === "sprint") {
       announce("一盘鲜榨完成", "清盘奖励 +500 · 继续收获");
     } else {
-      sound("win");
       if (!modalKind) {
         render();
         showResult();
@@ -603,7 +613,7 @@ function finishSprint() {
   recordResult();
   save();
   render();
-  sound("win");
+  sound("finish");
   showResult();
 }
 function assist(kind: "hint" | "shuffle" | "undo") {
@@ -627,7 +637,7 @@ function assist(kind: "hint" | "shuffle" | "undo") {
     selected = null;
     hintPair = [];
     renderBoard();
-    sound("tap");
+    sound("undo");
     caption("回到上一步。慢慢想，没关系。");
   } else if (kind === "hint") {
     const pair = findPairs(g.board, 1)[0];
@@ -645,7 +655,7 @@ function assist(kind: "hint" | "shuffle" | "undo") {
     hintTimer = window.setTimeout(() => {
       $("connections").innerHTML = "";
     }, 1600);
-    sound("tap");
+    sound("hint");
     caption("这两颗在发光，它们之间有一条甜甜的路。");
   } else {
     remember();
@@ -695,6 +705,7 @@ function openModal(kind: string, html: string, wide = false) {
   if (kind !== "result" && syncTime()) return;
   pendingClicks = [];
   if (!modalKind) previousFocus = document.activeElement as HTMLElement;
+  if (kind !== "result") stopAudio();
   modalKind = kind;
   paused = true;
   $("modal-root").innerHTML =
@@ -771,12 +782,22 @@ function showHelp() {
 function showSettings() {
   openModal(
     "settings",
-    `<div class="overline">A GROVE THAT FEELS LIKE YOU</div><h2 id="dialog-title">让果园，合你的心意。</h2><div class="setting-row"><div><strong>清脆音效</strong><span>点选、连消与通关的小小和弦</span></div><button role="switch" aria-checked="${data.settings.sound}" id="setting-sound" class="switch ${data.settings.sound ? "on" : ""}" aria-label="清脆音效"><i></i></button></div><div class="setting-row"><div><strong>灵动效果</strong><span>关闭后减少弹跳、粒子和闪烁</span></div><button role="switch" aria-checked="${data.settings.motion}" id="setting-motion" class="switch ${data.settings.motion ? "on" : ""}" aria-label="灵动效果"><i></i></button></div><div class="storage-note">${icon("leaf")}进度保存在当前浏览器，包括三个模式各自的棋局。清理浏览器数据会移除存档；换设备前可以导出备份。</div><div class="backup-buttons"><button id="export" class="secondary-button">${icon("download")} 导出进度</button><button id="import" class="secondary-button">${icon("upload")} 导入进度</button></div><div class="settings-small">果冻果园 v1.0 · 为一点纯粹的快乐而做</div>`,
+    `<div class="overline">A GROVE THAT FEELS LIKE YOU</div><h2 id="dialog-title">让果园，合你的心意。</h2><div class="setting-row"><div><strong>果园音效</strong><span>清亮的水果音，偶尔收获一点惊喜</span></div><button role="switch" aria-checked="${data.settings.sound}" id="setting-sound" class="switch ${data.settings.sound ? "on" : ""}" aria-label="果园音效"><i></i></button></div><div class="setting-row volume-row"><label for="setting-volume"><strong>音效音量</strong><span>调到舒服的位置，松手试听</span></label><div class="volume-control"><input id="setting-volume" type="range" min="0" max="100" step="1" value="${Math.round(data.settings.volume * 100)}" aria-label="音效音量" ${data.settings.sound ? "" : "disabled"}><output id="volume-value" for="setting-volume">${Math.round(data.settings.volume * 100)}%</output></div></div><div class="setting-row"><div><strong>灵动效果</strong><span>关闭后减少弹跳、粒子和闪烁</span></div><button role="switch" aria-checked="${data.settings.motion}" id="setting-motion" class="switch ${data.settings.motion ? "on" : ""}" aria-label="灵动效果"><i></i></button></div><div class="storage-note">${icon("leaf")}进度保存在当前浏览器，包括三个模式各自的棋局。清理浏览器数据会移除存档；换设备前可以导出备份。</div><div class="backup-buttons"><button id="export" class="secondary-button">${icon("download")} 导出进度</button><button id="import" class="secondary-button">${icon("upload")} 导入进度</button></div><div class="settings-small">果冻果园 v1.0 · 为一点纯粹的快乐而做</div>`,
   );
+  const volumeSlider = $("setting-volume") as HTMLInputElement;
+  volumeSlider.addEventListener("input", () => {
+    data.settings.volume = Number(volumeSlider.value) / 100;
+    setVolume(data.settings.volume);
+    $("volume-value").textContent = `${volumeSlider.value}%`;
+    save();
+  });
+  volumeSlider.addEventListener("change", () => sound("match", { combo: 3 }));
   for (const key of ["sound", "motion"] as const)
     bind(`setting-${key}`, () => {
       data.settings[key] = !data.settings[key];
       setSound(data.settings.sound);
+      volumeSlider.disabled = !data.settings.sound;
+      if (key === "sound" && data.settings.sound) sound("tap");
       document.documentElement.classList.toggle(
         "reduce-motion",
         !data.settings.motion,
@@ -1049,12 +1070,16 @@ document.addEventListener("keydown", (e) => {
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
+    stopAudio();
     save();
     if (g.phase === "playing" && !modalKind) showPause();
   }
   timer = performance.now();
 });
-window.addEventListener("pagehide", () => save());
+window.addEventListener("pagehide", () => {
+  stopAudio();
+  save();
+});
 window.addEventListener("resize", () => {
   $("connections").innerHTML = "";
 });
@@ -1064,10 +1089,15 @@ function syncTime(now = performance.now()) {
   if (!g || paused || modalKind || document.hidden || g.phase !== "playing")
     return false;
   saveClock += dt;
+  const previousFever = g.fever,
+    previousTime = g.timeLeft;
   if (advanceGame(g, dt)) {
     finishSprint();
     return true;
   }
+  if (g.mode === "sprint" && previousTime > 10000 && g.timeLeft <= 10000)
+    sound("time");
+  else if (previousFever > 0 && g.fever === 0) sound("feverEnd");
   return false;
 }
 function tick(now: number) {

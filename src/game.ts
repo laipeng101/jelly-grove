@@ -13,6 +13,8 @@ import type { Game, Snapshot } from "./storage";
 export const COMBO_WINDOW = 5500;
 export type Outcome = {
   points: number;
+  combo: number;
+  fever: boolean;
   clearedBoard: boolean;
   startedFever: boolean;
   autoShuffled: boolean;
@@ -91,8 +93,12 @@ export function commitMatch(
     }
   }
   g.board = next;
+  const combo = g.combo,
+    fever = g.fever > 0;
   const clearedBoard = settleBoard(g, level, rng);
   return {
+    combo,
+    fever,
     points,
     clearedBoard,
     startedFever,
