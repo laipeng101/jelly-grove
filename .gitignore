@@ -1,0 +1,10 @@
+# npm 安装的依赖与 Vite 构建产物（含单文件离线版）
+/node_modules/
+/dist/
+
+# 本地浏览器操作记录、测试截图、审查输出及备份
+/.playwright-cli/
+/output/
+
+# 任意目录中的 macOS 文件夹元数据
+.DS_Store
