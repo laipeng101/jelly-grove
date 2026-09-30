@@ -7,9 +7,12 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build && node scripts/package-offline.mjs",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "test:browser": "playwright test",
+    "verify": "npm test && npm run build && npm run test:browser"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^24.0.0",
     "tsx": "^4.20.0",
     "typescript": "~5.9.2",

@@ -1,0 +1,317 @@
+.play-toast {
+  display: none;
+}
+/* The compact game is one viewport, with a single optional board scroller.
+   Keep these rules separate from the decorative desktop page. */
+.compact-only {
+  display: none !important;
+}
+.compact-menu {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.compact-menu .secondary-button {
+  margin: 0;
+  min-height: 44px;
+}
+.round-details {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.round-details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.round-details dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}
+
+html.compact-play {
+  height: 100%;
+  overflow: hidden;
+  scroll-padding: 0;
+  -webkit-text-size-adjust: 100%;
+}
+.compact-play body {
+  min-height: 0;
+  height: var(--play-height, 100dvh);
+  overflow: hidden;
+}
+.compact-play #app {
+  height: 100%;
+}
+.compact-play .compact-only {
+  display: flex !important;
+}
+.compact-play .site-header,
+.compact-play .hero,
+.compact-play .mode-row,
+.compact-play .left-column,
+.compact-play .right-column,
+.compact-play footer,
+.compact-play .level-badge,
+.compact-play .rule-tag,
+.compact-play .full-level-name,
+.compact-play .round-objectives,
+.compact-play .score-divider,
+.compact-play .score-strip .combo-stat,
+.compact-play .combo-badge {
+  display: none !important;
+}
+.compact-play .page {
+  height: 100%;
+  max-width: none;
+  margin: 0;
+  padding: max(6px, env(safe-area-inset-top, 0px))
+    max(6px, env(safe-area-inset-right, 0px))
+    max(6px, env(safe-area-inset-bottom, 0px))
+    max(6px, env(safe-area-inset-left, 0px));
+}
+.compact-play .game-layout {
+  display: block;
+  height: 100%;
+  margin: 0;
+}
+.compact-play .game-card {
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-width: 0;
+  border-radius: 18px;
+}
+.compact-play .game-card-top {
+  grid-row: 1;
+  padding: 0 8px;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.compact-play .level-heading {
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: max-content;
+}
+.compact-play .compact-mode,
+.compact-play .compact-more {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 6px;
+  align-items: center;
+  justify-content: center;
+  color: #385b42;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: 10px;
+}
+.compact-play .compact-mode {
+  white-space: nowrap;
+}
+.compact-play .board-selector {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 5px 7px;
+  margin: 0;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+.compact-play .board-selector h2 {
+  font-size: inherit;
+}
+.compact-play .board-selector > .icon {
+  display: none;
+}
+.compact-play .board-top-actions {
+  gap: 0;
+}
+.compact-play .pause-btn {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+.compact-play .score-strip {
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.25fr) minmax(0, 1fr);
+  margin: 0 12px;
+  padding: 0 0 3px;
+  gap: 8px;
+}
+.compact-play .score-strip > div {
+  min-width: 0;
+  gap: 2px;
+}
+.compact-play .score-strip span {
+  font-size: 0.75rem;
+  color: #52654b;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+.compact-play .score-strip strong {
+  min-width: 0;
+  font:
+    600 1.125rem/1.2 system-ui,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  color: #365a40;
+}
+.compact-play .score-strip strong small {
+  font-size: 0.75rem;
+  color: #52654b;
+}
+.compact-play .score-strip strong.time-warning {
+  color: #a43827;
+}
+.compact-play .compact-objective {
+  flex-direction: column;
+  text-align: right;
+}
+.compact-play .play-meters {
+  grid-row: 3;
+  gap: 12px;
+  margin: 4px 12px 0;
+  color: #365a40;
+}
+.compact-play #combo-label,
+.compact-play #mini-juice-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.compact-play .meter-track {
+  height: 5px;
+}
+.compact-play .board-caption {
+  grid-row: 4;
+  padding: 5px 12px 0;
+  min-height: 41px;
+  display: grid;
+  align-items: center;
+  text-align: center;
+  color: #52654b;
+}
+.compact-play .board-caption > span:first-child {
+  display: block;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.compact-play .board-caption:has(.play-toast.show) > span {
+  display: none;
+}
+.compact-play .play-toast {
+  display: none;
+  position: static;
+  max-width: none;
+  padding: 0;
+  margin: 0;
+  transform: none;
+  box-shadow: none;
+  border: 0;
+  background: none;
+  color: #365a40;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: normal;
+}
+.compact-play .play-toast.show {
+  display: block;
+}
+.compact-play .board-viewport {
+  grid-row: 5;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: #8ba57c #f2f5eb;
+}
+.compact-play .scrollable-board {
+  box-shadow:
+    inset 0 2px 0 #dce5d3,
+    inset 0 -2px 0 #dce5d3;
+}
+.compact-play .board-shell {
+  margin: 0;
+  padding: 16px;
+  min-width: calc(var(--board-width, 284px) + 32px);
+  min-height: max(100%, calc(var(--board-height, 380px) + 32px));
+  display: grid;
+  place-items: center;
+}
+.compact-play .board {
+  width: var(--board-width, 284px);
+  height: var(--board-height, 380px);
+  max-width: none !important;
+  gap: 4px;
+}
+.compact-play .fruit-tile,
+.compact-play .stone-cell,
+.compact-play .empty-cell {
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 10px;
+  scroll-margin: 16px;
+}
+.compact-play .tools {
+  grid-row: 6;
+  position: static;
+  padding: 4px 8px;
+  margin: 0;
+  gap: 4px;
+  border: 0;
+  border-top: 1px solid #dce5d3;
+  border-radius: 0;
+  box-shadow: none;
+  background: #f6f9ef;
+  backdrop-filter: none;
+}
+.compact-play .tool-button {
+  min-height: 44px;
+  padding: 4px;
+  gap: 8px;
+}
+.compact-play .tool-button > span {
+  font-size: 0.875rem;
+  color: #385b42;
+}
+.compact-play .tool-button small,
+.compact-play .tool-button kbd,
+.compact-play .tool-button::after {
+  display: none;
+}
+.compact-play .tool-button > .icon {
+  width: 22px;
+  height: 22px;
+}
+.compact-play .modal-backdrop {
+  padding: max(10px, env(safe-area-inset-top, 0px)) 10px
+    max(10px, env(safe-area-inset-bottom, 0px));
+}
+.compact-play .modal {
+  max-height: calc(var(--play-height, 100dvh) - 32px);
+}
+.compact-play .modal-close {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Modal errors/exports use the existing global status layer; normal play uses
+   the reserved feedback row, so notifications never cover fruit or live stats. */
+.compact-play #toast {
+  display: none;
+}
+.compact-play:has(.modal-backdrop) #toast.show {
+  display: block;
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
+}
