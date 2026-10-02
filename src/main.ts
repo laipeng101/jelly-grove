@@ -1,5 +1,7 @@
 import "./style.css";
 import "./compact.css";
+import { initJourneyView } from "./journey/view";
+import { classicLevel } from "./classic-levels";
 import { observePlayLayout } from "./play-layout";
 import {
   LEVELS,
@@ -33,6 +35,7 @@ import {
   type Mode,
 } from "./storage";
 
+const trialMode = new URLSearchParams(location.search).get("play") === "lab";
 const loaded = loadSave();
 let data = loaded.save;
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -79,16 +82,7 @@ const stars = (n: number) =>
   );
 function levelFor(mode: Mode, level = 1, difficulty = 1): Level {
   if (mode === "journey") return LEVELS[level - 1];
-  return {
-    ...LEVELS[difficulty === 0 ? 2 : difficulty === 1 ? 7 : 16],
-    id: level,
-    gravity: mode === "free" && difficulty === 2,
-    name:
-      mode === "sprint"
-        ? "120 秒，鲜榨快乐"
-        : ["轻松一盘", "刚刚好的挑战", "高手的果园"][difficulty],
-    target: [4, 5, 6][difficulty],
-  };
+  return classicLevel(mode, difficulty, level);
 }
 function config() {
   return levelFor(g.mode, g.level, g.difficulty);
@@ -189,7 +183,7 @@ function render() {
   document.body.classList.toggle("deep-grove", g.board.length > 6);
   app.innerHTML = `<header class="site-header"><a class="brand" href="#" aria-label="果冻果园 · 选择关卡"><span class="brand-mark">${icon("leaf")}</span><span>果冻果园<small>JELLY GROVE</small></span></a><div class="header-right"><span class="save-status"><i></i><span id="save-label" class="${storageOK ? "" : "save-error"}">${storageOK ? "进度已自动保存" : "存储不可用 · 请导出进度"}</span></span><button class="icon-btn" data-action="sound" aria-label="${data.settings.sound ? "关闭音效" : "开启音效"}">${icon(data.settings.sound ? "sound" : "mute")}</button><button class="icon-btn" data-action="help" aria-label="玩法说明">${icon("help")}</button><button class="icon-btn" data-action="settings" aria-label="设置">${icon("settings")}</button></div></header>
   <main class="page"><section class="hero"><div><div class="eyebrow"><span></span> YOUR LITTLE POCKET OF JOY</div><h1>连起一点<span>甜。</span><svg class="title-swish" viewBox="0 0 116 16"><path d="M3 10Q58 0 111 8M22 15Q65 7 92 12"/></svg></h1><p>不赶时间，让小小的快乐，刚好相遇。</p></div><div class="hero-art" aria-hidden="true"><span class="art-spark s1">✧</span><span class="art-spark s2">✳</span><div class="floating-fruit peach">${fruitSVG(5)}</div><div class="floating-fruit lime">${fruitSVG(3)}</div><div class="floating-fruit berry">${fruitSVG(1)}</div><span class="art-caption">freshly picked happiness</span><svg class="art-loop" viewBox="0 0 310 125"><path d="M8 88C50 123 274 124 296 54M265 58l31-4-10 25"/></svg></div></section>
-  <div class="mode-row"><nav class="mode-tabs" aria-label="游戏模式">${(["journey", "free", "sprint"] as Mode[]).map((m) => `<button data-mode="${m}" class="mode-tab ${g.mode === m ? "active" : ""}" aria-pressed="${g.mode === m}">${icon(m === "journey" ? "leaf" : m === "free" ? "infinity" : "clock")}${labels[m]}${m === "journey" ? "<span>24 关</span>" : ""}</button>`).join("")}</nav><span class="mode-note">${g.mode === "sprint" ? "一点心跳，也是一点快乐。" : "慢慢来，好事会相遇。"} ${icon("heart")}</span></div>
+  <div class="mode-row"><nav class="mode-tabs" aria-label="游戏模式">${(["journey", "free", "sprint"] as Mode[]).map((m) => `<button data-mode="${m}" class="mode-tab ${g.mode === m ? "active" : ""}" aria-pressed="${g.mode === m}">${icon(m === "journey" ? "leaf" : m === "free" ? "infinity" : "clock")}${labels[m]}${m === "journey" ? "<span>24 关</span>" : ""}</button>`).join("")}<a class="mode-tab" href="?play=lab">新关卡试玩</a></nav><span class="mode-note">${g.mode === "sprint" ? "一点心跳，也是一点快乐。" : "慢慢来，好事会相遇。"} ${icon("heart")}</span></div>
   <div class="game-layout"><aside class="left-column"><section class="journey-card"><div class="overline">${g.mode === "journey" ? "YOUR LITTLE JOURNEY" : "MAKE IT YOURS"}</div><div class="section-label">${icon(g.mode === "journey" ? "leaf" : "infinity")}<h2>${g.mode === "journey" ? chapter.name : g.mode === "free" ? "随心开一盘" : "一杯的时间"}</h2></div><p>${g.mode === "journey" ? chapter.description : g.mode === "free" ? "没有终点，没有催促。\n只需要享受每一次相遇。" : "120 秒能收获多少甜？\n连消与缤纷时刻让分数翻倍。"}</p>${
     g.mode === "journey"
       ? `<div class="chapter-progress"><span>CHAPTER 0${l.chapter + 1}</span><span>${data.stars.slice(l.chapter * 6, l.chapter * 6 + 6).filter((x) => x > 0).length} / 6</span></div><div class="level-mini">${LEVELS.slice(
@@ -776,7 +770,7 @@ function bind(id: string, fn: () => void) {
 function showModes() {
   openModal(
     "modes",
-    `<h2 id="dialog-title">去哪里收获快乐？</h2><p>各模式分别保存进度，随时回来继续。</p><div class="compact-menu">${(["journey", "free", "sprint"] as Mode[]).map((m) => `<button class="secondary-button" data-choose-mode="${m}">${labels[m]}${g.mode === m ? " · 当前" : ""}</button>`).join("")}</div>`,
+    `<h2 id="dialog-title">去哪里收获快乐？</h2><p>各模式分别保存进度，随时回来继续。</p><div class="compact-menu">${(["journey", "free", "sprint"] as Mode[]).map((m) => `<button class="secondary-button" data-choose-mode="${m}">${labels[m]}${g.mode === m ? " · 当前" : ""}</button>`).join("")}<a class="secondary-button" href="?play=lab">新关卡试玩 · 流转送达</a></div>`,
   );
   document
     .querySelectorAll<HTMLButtonElement>("[data-choose-mode]")
@@ -790,7 +784,7 @@ function showDetails() {
   const l = config();
   openModal(
     "details",
-    `<h2 id="dialog-title">这一局的果园</h2><p>${labels[g.mode]} · ${l.name}<br>${l.gravity ? "水果向下落 · " : ""}${l.pattern === "stones" ? "石头不可穿越 · " : ""}最多两次转弯，可沿棋盘外侧连线。</p><dl class="round-details"><div><dt>本局最佳连消</dt><dd>${g.bestCombo} 连</dd></div><div><dt>当前盘数</dt><dd>第 ${g.round} 盘</dd></div>${g.mode === "journey" ? `<div><dt>关卡目标</dt><dd>清盘 · 不用辅助 · ${l.target} 连消</dd></div><div><dt>辅助状态</dt><dd>${g.assists ? "本局已用辅助" : "尚未使用辅助"}</dd></div>` : `<div><dt>历史最高分</dt><dd>${format(g.mode === "sprint" ? data.best : data.freeBest)}</dd></div><div><dt>清盘奖励</dt><dd>${g.mode === "sprint" ? "+500 分，自动续盘" : "不限时，自动续盘"}</dd></div>`}<div><dt>进度保存</dt><dd>${storageOK ? "已自动保存" : "存储不可用，请导出进度"}</dd></div></dl><div class="compact-menu"><button class="secondary-button" id="details-settings">音效与设置</button><button class="secondary-button" id="details-help">玩法说明</button><button class="secondary-button" id="details-restart">重新开始</button></div>`,
+    `<h2 id="dialog-title">这一局的果园</h2><p>${labels[g.mode]} · ${l.name}<br>${l.gravity ? "水果向下落 · " : ""}${l.pattern === "stones" ? "石头不可穿越 · " : ""}最多两次转弯，可沿棋盘外侧连线。</p><dl class="round-details"><div><dt>本局最佳连消</dt><dd>${g.bestCombo} 连</dd></div><div><dt>当前盘数</dt><dd>第 ${g.round} 盘</dd></div>${g.mode === "journey" ? `<div><dt>关卡目标</dt><dd>清盘 · 不用辅助 · ${l.target} 连消</dd></div><div><dt>辅助状态</dt><dd>${g.assists ? "本局已用辅助" : "尚未使用辅助"}</dd></div>` : `<div><dt>历史最高分</dt><dd>${format(g.mode === "sprint" ? data.best : data.freeBest)}</dd></div><div><dt>清盘奖励</dt><dd>${g.mode === "sprint" ? "+500 分，自动续盘" : "清盘后可再来一盘"}</dd></div>`}<div><dt>进度保存</dt><dd>${storageOK ? "已自动保存" : "存储不可用，请导出进度"}</dd></div></dl><div class="compact-menu"><button class="secondary-button" id="details-settings">音效与设置</button><button class="secondary-button" id="details-help">玩法说明</button><button class="secondary-button" id="details-restart">重新开始</button><a class="secondary-button" href="?play=lab">新关卡试玩 · 流转送达</a></div>`,
   );
   bind("details-settings", showSettings);
   bind("details-help", showHelp);
@@ -1052,6 +1046,7 @@ function boardKeyboard(e: KeyboardEvent) {
   }
 }
 document.addEventListener("keydown", (e) => {
+  if (trialMode) return;
   if (modalKind) {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -1061,7 +1056,7 @@ document.addEventListener("keydown", (e) => {
     if (e.key === "Tab") {
       const items = [
         ...$("modal-root").querySelectorAll<HTMLElement>(
-          'button:not(:disabled),input,select,[tabindex="0"]',
+          'button:not(:disabled),a[href],input,select,[tabindex="0"]',
         ),
       ];
       const first = items[0],
@@ -1106,6 +1101,7 @@ document.addEventListener("keydown", (e) => {
   }
 });
 document.addEventListener("visibilitychange", () => {
+  if (trialMode) return;
   if (document.hidden) {
     stopAudio();
     save();
@@ -1114,10 +1110,12 @@ document.addEventListener("visibilitychange", () => {
   timer = performance.now();
 });
 window.addEventListener("pagehide", () => {
+  if (trialMode) return;
   stopAudio();
   save();
 });
 window.addEventListener("resize", () => {
+  if (trialMode) return;
   $("connections").innerHTML = "";
 });
 function syncTime(now = performance.now()) {
@@ -1148,10 +1146,13 @@ function tick(now: number) {
   }
   window.setTimeout(() => tick(performance.now()), 100);
 }
-const saved = data.sessions[data.mode];
-if (saved) {
-  g = saved;
-  restoreCurrent();
-} else newGame("journey");
-if (loaded.warning) setTimeout(() => toast(loaded.warning!), 250);
-tick(performance.now());
+if (trialMode) initJourneyView(app);
+else {
+  const saved = data.sessions[data.mode];
+  if (saved) {
+    g = saved;
+    restoreCurrent();
+  } else newGame("journey");
+  if (loaded.warning) setTimeout(() => toast(loaded.warning!), 250);
+  tick(performance.now());
+}

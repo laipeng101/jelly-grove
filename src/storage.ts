@@ -5,6 +5,7 @@ import {
   canClearGeometry,
   type Board,
 } from "./engine";
+import { classicLevel } from "./classic-levels";
 export type Mode = "journey" | "free" | "sprint";
 export type Snapshot = {
   board: Board;
@@ -160,12 +161,7 @@ function validGame(g: Game, mode: Mode): boolean {
   )
     return false;
   const l =
-    mode === "journey"
-      ? LEVELS[g.level - 1]
-      : {
-          ...LEVELS[g.difficulty === 0 ? 2 : g.difficulty === 1 ? 7 : 16],
-          id: 1,
-        };
+    mode === "journey" ? LEVELS[g.level - 1] : classicLevel(mode, g.difficulty);
   if (g.board.length !== l.rows || g.board[0].length !== l.cols) return false;
   const stones = (b: Board) =>
     b

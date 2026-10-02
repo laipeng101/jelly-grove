@@ -9,7 +9,12 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "tsx --test tests/*.test.ts",
     "test:browser": "playwright test",
-    "verify": "npm test && npm run build && npm run test:browser"
+    "verify": "npm test && npm run build && npm run test:browser",
+    "journey:benchmark": "tsx scripts/benchmark-journey.ts",
+    "journey:benchmark:browser": "node scripts/benchmark-journey-browser.mjs",
+    "journey:backups": "tsx scripts/build-journey-backups.ts",
+    "journey:freeze": "node scripts/freeze-journey.mjs create",
+    "journey:check-freeze": "node scripts/freeze-journey.mjs verify"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
