@@ -1,6 +1,6 @@
 # 有界、证据驱动的审核
 
-本工具仅修正审核流程，不改游戏、生成器、构建或冻结清单。它不能替代独立推理、视觉审核，也不能把未完成的第三轮算成通过。
+本工具仅修正审核流程，不改游戏、生成器、构建或冻结清单。2026-10-02用户采用[风险驱动验收契约v2](../../JOURNEY-ACCEPTANCE.md)，取消固定三轮门槛；工具不能替代独立推理、视觉审核，也不能把audit10或任何补充报告的`INCOMPLETE`改为`PASS`。当前门禁支持`PASS`和`PASS_WITH_RESIDUAL_RISK`两种明确结论。
 
 ## 本次反复重试的原因
 
@@ -20,16 +20,23 @@
 4. 使用 `browser.mjs` 的可见状态助手：动作后要求种子不变、操作精确加1、棋盘改变且控件恢复；预览只看预览组；每次重绘后重施并量测字号；真实滚动目标后截图。助手不读存档、解法或隐藏游戏状态，不选择配对或求解。
 5. 同一错误第二次出现就结束当前采集单元，保存 `HARNESS_ERROR`、当前快照和待办，先修方法再跑一次。产品缺陷固定种子复现；工具故障记边界；没有解出的盘仅记盲玩未完成。不要自动无界重试或默认换代理。
 6. 专项和独立解谜分开推进。卡住的三星不能阻塞存档、离线、字体等可独立执行专项；每项单独保存结果，不覆盖旧证据。
-7. `evidence.mjs` 校验全部语义矩阵、实际终局、成功消除后、字号、滚动、人工看图确认、专项和文件SHA-256。`PASS` 只能由全部证据通过后给出，不能根据文件名、截图数量或代理宣称推导。
+7. 补充执行使用 `capture-budget.mjs` 的硬分段预算：8分钟解谜、3分钟证据、1分钟关闭；预算对象在每次动作前检查，阶段耗尽不再点击，避免把关闭和封装拖出总预算。
+8. `browser.mjs` 的 `attemptVisiblePair` 对拒绝配对返回稳定的 `rejected` 结果，不等待成功动作的长超时；只有种子不变、操作数加一且棋盘变化才返回 `accepted`。
+9. `evidence.mjs` 保留单轮全部语义矩阵校验；`closeout.mjs` 按新契约复用有效完整历史证据，并校验定向补充、产物身份、原报告哈希、实际终局、成功重绘、字号、滚动、代理实际看图和附件SHA-256。三次补充均未完成时，只有在三份报告/绑定/附件哈希完整、未作无解结论，且audit9已有第18主题三星与完整视觉矩阵时，才能给出`PASS_WITH_RESIDUAL_RISK`；不根据文件名、截图数量或代理宣称推导通过；不要求真人参与。
 
 ## 命令
 
 ```sh
 node --test tools/journey-review/evidence.test.mjs
 node --test --import tsx tools/journey-review/browser.test.mjs
+node --test tools/journey-review/capture-budget.test.mjs
 node tools/journey-review/evidence.mjs /absolute/path/to/own-review/evidence.json
+node --test tools/journey-review/closeout.test.mjs
+node tools/journey-review/closeout.mjs
 ```
 
 浏览器助手集成测试使用已有4180生产预览和自身新上下文，结束自动关闭。技术测试可读受版本控制的备用盘；它不计作独立盲审。证据格式参考 `evidence.test.mjs` 中的完整夹具；真实报告必须填写实际数据和文件哈希，不能复用夹具。现有未完成报告不得迁移为PASS。
 
-只有同一冻结交付物三轮完整独立审核通过才可认定首期最终验收完成。2026-10-02用户另行明确要求当前阶段提交推送，因此允许阶段性归档；归档保留2/3与INCOMPLETE状态，不代表最终验收，也不触发新一轮盲审。工具放在 `tools/`，不在当前冻结产品文件集合内；本次流程修正未改游戏源码、测试和构建。如以后改游戏或其受冻测试，必须按原契约重冻并重新累计，不能伪装为证据修复。
+历史阶段归档保留旧契约2/3与audit10的INCOMPLETE，不改写历史。当前最终验收按v2要求复用audit8/9、技术回归并审查三次有界定向补充，输出独立的新门禁和覆盖表；预算耗尽的补充仍为INCOMPLETE，必要时转入风险接受而非改写状态。工具放在 `tools/`，不在当前冻结产品文件集合内；仅流程文档和审核工具修改不重冻产品。游戏或受冻测试变更需新身份及受影响验证，不能伪装为证据修复。
+
+用户明确要求下一次补充时，新目录和执行绑定由 `output/journey/risk-closeout/active-supplement.json` 选择，`authorization` 必须为 `user-requested-next-supplement`。旧 `supplement/`、绑定和未完成记录保留；没有选择文件仍检查原目录。不扫描目录挑选通过结果，不覆盖旧附件。

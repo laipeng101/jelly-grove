@@ -64,7 +64,13 @@
 
 实现后的问题闭环、冻结标识和隔离审核证据见 [JOURNEY-VALIDATION.md](JOURNEY-VALIDATION.md)。
 
-开发验证：`npm run verify`；六主题各100次生成基准：`npm run journey:benchmark`。`npm run journey:backups` 会重建受版本控制的备用局，属于关卡内容变更，需要重新构建并重做冻结审核。冻结与检查命令为 `npm run journey:freeze`、`npm run journey:check-freeze`。
+开发验证：`npm run verify`（不含审核工具测试）；审核工具测试：`node --test --import tsx tools/journey-review/*.test.mjs`，浏览器助手需已有4180生产预览。六主题各100次Node生成基准：`npm run journey:benchmark`；真实浏览器Worker基准：`npm run journey:benchmark:browser`。`npm run journey:backups` 会重建受版本控制的备用局，属于关卡内容变更，需要重新构建并重做冻结审核。冻结与检查命令为 `npm run journey:freeze`、`npm run journey:check-freeze`。
+
+当前六主题采用[风险驱动验收契约v2](JOURNEY-ACCEPTANCE.md)，不再机械重复三轮全量审核。冻结收口只读检查：`node tools/journey-review/closeout.mjs`，复用有效证据并校验必需缺口；当前工作区结论为`PASS_WITH_RESIDUAL_RISK`，普通克隆缺少审核附件会明确返回`INCOMPLETE`，不应反复重跑或伪造通过。
+
+审核工具回归：`node --test --import tsx tools/journey-review/*.test.mjs`。下一次补充使用8/3/1分钟硬分段预算，不得把证据采集和浏览器关闭拖出总预算。
+
+[当前收口状态](JOURNEY-CLOSEOUT.md)：主产品门槛通过，三次定向补充均如实未完成，最终为`PASS_WITH_RESIDUAL_RISK`；停止重复全量审核基于已界定残余风险，不等于把补充改写为PASS。
 
 ## 原模式存档
 

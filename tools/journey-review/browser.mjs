@@ -14,31 +14,50 @@ export async function readVisibleState(page) {
   });
 }
 
-export async function waitForVisibleState(page, expected) {
+export function visibleButton(page, name) {
+  return page.getByRole('button', { name, exact: false }).first();
+}
+
+export async function clickVisibleButton(page, name, timeout = 1200) {
+  const button = visibleButton(page, name);
+  await button.click({ timeout });
+  return button;
+}
+
+export async function waitForVisibleState(page, expected, timeout = 5000) {
   await page.waitForFunction(expected => {
     const seed = Number(document.querySelector('.trial-seed')?.textContent?.match(/种子\s+(\d+)/)?.[1]);
     const moves = Number(document.querySelector('.trial-stats > span')?.textContent?.match(/操作\s+(\d+)/)?.[1]);
     const board = document.querySelector('#trial-board');
     return seed === expected.seed && moves === expected.moves && Boolean(board) && document.querySelector('[data-trial="preview"]')?.disabled === false;
-  }, expected, { timeout: 5000 });
+  }, expected, { timeout });
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   return readVisibleState(page);
 }
 
-export async function matchVisiblePair(page, firstName, secondName) {
+export async function attemptVisiblePair(page, firstName, secondName, { timeout = 1500 } = {}) {
   const before = await readVisibleState(page);
   if (before.preview) throw new Error('Exit preview before matching');
-  await page.getByRole('button', { name: firstName, exact: true }).click();
-  await page.getByRole('button', { name: secondName, exact: true }).click();
-  let after;
+  await clickVisibleButton(page, firstName);
+  await clickVisibleButton(page, secondName);
+  let after = before;
   try {
-    after = await waitForVisibleState(page, { seed: before.seed, moves: before.moves + 1 });
-  } catch (cause) {
+    after = await waitForVisibleState(page, { seed: before.seed, moves: before.moves + 1 }, timeout);
+    if (after.boardText === before.boardText) throw new Error('Successful-action capture still contains the old board');
+    return { outcome: 'accepted', before, after };
+  } catch (error) {
     const current = await readVisibleState(page);
-    throw new Error(`Match not confirmed; stop capture: ${JSON.stringify({ before, current })}`, { cause });
+    if (current.seed === before.seed && current.moves === before.moves)
+      return { outcome: 'rejected', before, after: current };
+    throw new Error(`Match not confirmed; stop capture: ${JSON.stringify({ before, current })}`, { cause: error });
   }
-  if (after.boardText === before.boardText) throw new Error('Successful-action capture still contains the old board');
-  return { before, after };
+}
+
+export async function matchVisiblePair(page, firstName, secondName, options) {
+  const result = await attemptVisiblePair(page, firstName, secondName, options);
+  if (result.outcome !== 'accepted')
+    throw new Error(`Pair was rejected: ${JSON.stringify(result.after)}`);
+  return result;
 }
 
 export async function applyTextMode(page, mode) {
