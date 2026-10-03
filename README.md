@@ -24,6 +24,8 @@
 
 ## 开始游玩
 
+- 在线游玩：[果冻果园](https://laipeng101.github.io/jelly-grove/)。直接把链接发给朋友，手机浏览器即可打开，无需下载 HTML。
+- 新关卡试玩直达：[流转送达](https://laipeng101.github.io/jelly-grove/?play=lab)。
 - 双击构建产物 `dist/果冻果园.html`，可直接离线游玩。
 - 开发：`npm install` 后运行 `npm run dev`，打开终端显示的地址。手机与电脑在同一网络时可使用终端列出的 Network 地址。
 - 正式构建：`npm run build`。`dist/` 可放到任何普通静态网站托管服务；其中 `果冻果园.html` 为独立离线版本。
@@ -33,6 +35,14 @@
 - 完整验证：`npm run verify`（逻辑测试、生产／离线构建、浏览器布局和交互回归）。仅复跑浏览器：`npm run test:browser`，需先运行构建。
 
 手机自动显示紧凑对局：当前连消、续连时间、蓄能／双倍状态在棋盘上方，辅助操作在下方，各自独立占位。正常竖屏下完整棋盘同屏；极短屏或放大文字时只滚动棋盘，保留至少44px水果触控区域。点击“更多”可查看纪录、盘数和规则，并进入设置或帮助。
+
+## 在线发布
+
+网站托管在 GitHub Pages，由 `.github/workflows/pages.yml` 自动发布。推送到 `main` 后，工作流安装锁定的依赖、运行逻辑测试、构建游戏，并将单文件离线版作为网站的 `index.html` 部署；也可在 GitHub Actions 中手动运行工作流。
+
+仓库 Settings → Pages 的发布来源需选择 GitHub Actions。部署结果和线上地址显示在 Actions 的部署任务中。网站首页使用内嵌资源，适配 `/jelly-grove/` 子路径，不依赖根路径下的资源文件。
+
+在线版与本地 HTML 的存档分别保存；迁移进度时使用设置中的导出／导入功能。
 
 ## 玩法
 
