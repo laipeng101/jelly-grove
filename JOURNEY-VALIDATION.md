@@ -1,6 +1,8 @@
 # 新关卡试玩：验证与隔离审核
 
-当前状态（2026-10-03）：按用户要求暂缓真人与物理设备验证，取消固定机型要求，优先核验第18主题初盘可解性并关闭此前盲玩失败的技术疑点。独立穷举与真实界面技术重放均通过，见 [THEME18-SOLVABILITY.md](THEME18-SOLVABILITY.md)。三次补充与audit10保持原`INCOMPLETE`，不继续重复盲玩，不扩展其他关卡。
+2026-10-04体验改版已按用户确认实施，当前行为、验证和边界见 [TRIAL-EXPERIENCE.md](TRIAL-EXPERIENCE.md)。旧冻结与门禁备份于 `output/journey/trial-experience-baseline/`；本文下方的旧审核结论只对应旧版，不迁移为新版独立审核通过。当前生成规则与备用盘未变，真人与物理设备验证继续暂缓。
+
+此前调查（2026-10-03）：按用户要求暂缓真人与物理设备验证，取消固定机型要求，优先核验第18主题初盘可解性并关闭此前盲玩失败的技术疑点。独立穷举与真实界面技术重放均通过，见 [THEME18-SOLVABILITY.md](THEME18-SOLVABILITY.md)。三次补充与audit10保持原`INCOMPLETE`，不继续重复盲玩，不扩展其他关卡。
 
 2026-10-02历史收口采用[风险驱动验收契约v2](JOURNEY-ACCEPTANCE.md)，门禁为**PASS_WITH_RESIDUAL_RISK**：主产品门槛通过，三次定向补充未完成并接受残余风险。[收口摘要](JOURNEY-CLOSEOUT.md)保留历史结果与本次更新。旧契约仍为2/3，不改写或拼接补算；新技术调查不迁移为旧盲玩通过。
 
@@ -8,7 +10,7 @@
 
 ## 审核规则
 
-以下轮次、修复和续接章节是原契约执行历史，不作为继续整轮重跑的要求。v2当前结果由 `node tools/journey-review/closeout.mjs` 生成；[新覆盖表](output/journey/risk-closeout/coverage.md)、[机器门禁](output/journey/risk-closeout/gate.json)、[附件哈希清单](output/journey/risk-closeout/artifacts.json)与定向补充分别保存，不覆盖旧记录。
+以下轮次、修复和续接章节是原契约执行历史，不作为继续整轮重跑的要求。v2历史结果由 `node tools/journey-review/closeout.mjs` 生成；[新覆盖表](output/journey/risk-closeout/coverage.md)、[机器门禁](output/journey/risk-closeout/gate.json)、[附件哈希清单](output/journey/risk-closeout/artifacts.json)与定向补充分别保存，不覆盖旧记录。
 
 每轮由三名全新、空白上下文代理独立审核规则与状态、生成与质量、盲玩与交付。审核者不读取其他代理的结论；盲玩者不读取源码、隐藏状态、求解器或答案文件。技术审核自行构造反例及独立模型，盲玩审核通过可见界面实际操作。
 
@@ -45,7 +47,7 @@
 
 首次未通过构建的源码哈希为 `e6376a4592e4ba985b3834ee84fdba9dd296031944e113e823e4203c1a97494b`，独立 HTML 哈希为 `9ce5d311cd8f445f98816e7260358e39bec21d25dae5a59b4a0db216f42177cb`。该构建的局部通过结果不计入最终连续审核。
 
-## 当前冻结版本的独立质量验证
+## 旧冻结版本的独立质量验证
 
 下表是三个独立质量审核的核心样本，各包含600个新实时盘和192个备用盘。每轮由独立实现穷举核验普通通关、挑战通关、普通但未达挑战的通关，以及关键分支和教学必要性。备用盘在不同轮重复验证，因此不把三轮样本相加称为不同棋局数量。
 

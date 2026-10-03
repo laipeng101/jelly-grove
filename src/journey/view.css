@@ -107,7 +107,7 @@
   font-size: 1.3125rem;
 }
 .trial-challenge {
-  font-size: 0.75rem;
+  font-size: 1rem;
   line-height: 1.45;
   padding: 9px 2px 6px;
 }
@@ -293,6 +293,7 @@
   border-radius: 10px;
   color: #79632d;
 }
+.trial-actions { display:grid; gap:4px; flex-shrink:0; }
 .trial-tools,
 .trial-secondary {
   display: grid;
@@ -541,8 +542,8 @@
     font-size: 1.1875rem;
   }
   .trial-challenge {
-    padding: 5px 0 2px;
-    font-size: 0.75rem;
+    padding: 0;
+    font-size: 1rem;
     flex-shrink: 0;
   }
   .trial-stats {
@@ -691,4 +692,80 @@
 .reduce-motion .trial-dialog * {
   animation: none !important;
   transition: none !important;
+}
+
+/* Shared palette and result/button classes come from the main game stylesheet. */
+.trial-card { background: var(--cream); border-color: var(--line); box-shadow: var(--shadow); }
+.trial-objective { background: var(--mint); }
+.trial-stars-card {
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  background: #f4f6e9;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  flex-shrink: 0;
+}
+.trial-star-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  text-align: left;
+}
+.trial-star-row > div { flex: 1; min-width: 0; }
+.trial-star-condition { display: block; font-size: 1rem; font-weight: 650; line-height: 1.4; color: var(--ink); }
+.trial-star-reason { display: none; font-size: .75rem; line-height: 1.4; color: var(--deep); }
+.trial-star-row[data-status="failed"] .trial-star-reason,
+.trial-result-reasons .trial-star-reason { display: block; }
+.trial-star-row[data-status="failed"] .trial-star-condition { color: #966044; }
+.trial-star-row[data-status="failed"] .trial-star-reason { color: #8c5745; }
+.trial-star,
+.trial-star-summary { display:inline-flex; align-items:center; gap:3px; flex-shrink:0; }
+.trial-star .icon,
+.trial-star-summary .icon,
+.trial-condition-icon .icon { width:20px; height:20px; color:#c4cbb1; fill:#e8ecd9; stroke-width:1; }
+.trial-star .icon.lit,
+.trial-star-summary .icon.lit,
+.trial-condition-icon .icon.lit { color:#d5b671; fill:#edd68b; filter:drop-shadow(0 2px 0 #e7ddb033); }
+.trial-condition-icon { position:relative; flex:0 0 20px; width:20px; height:20px; }
+.trial-condition-icon .icon { display:block; }
+.trial-condition-icon.failed .icon { color:#a97961; fill:#eee1d2; }
+.trial-condition-icon.failed { color:#a97961; }
+.trial-condition-icon i { position:absolute; width:24px; height:2px; top:9px; left:-2px; background:currentColor; transform:rotate(-40deg); border-radius:2px; }
+.trial-star-condition.trial-challenge { padding:0; line-height:1.4; }
+.trial-challenge-undo { border:1px solid #decbb7; background:#fffaf0; border-radius:10px; padding:4px 8px; font-size:.75rem; flex-shrink:0; }
+.trial-dialog .trial-stars-card { padding: 10px; }
+.trial-dialog .primary-button,
+.trial-dialog .secondary-button,
+.trial-result-entry { font-size: .9375rem; }
+.trial-result-entry { flex-shrink:0; margin:4px 0; }
+.trial-dialog .result-fruits { max-width:100%; margin-top:8px; }
+.trial-dialog .result-stars { margin:12px 0; }
+.trial-primary { background: #638366; color:#fffef4; border:1px solid #5e7f61; box-shadow:0 4px 0 #dfe8d7; }
+.trial-moving-fruit { position:absolute; pointer-events:none; z-index:5; display:flex; align-items:center; justify-content:center; }
+.trial-moving-fruit .fruit-svg { width:100%; height:100%; filter:drop-shadow(0 3px 2px #49603612); }
+.trial-board-shell[data-motion-phase="move"] .trial-arrow { color:var(--deep); filter:drop-shadow(0 0 3px #c9e5b8); }
+.trial-idle-cue .on-track > .fruit-svg { animation:trial-direction-cue 900ms ease-in-out; }
+.trial-idle-cue .trial-arrow { animation:trial-arrow-cue 900ms ease-in-out; }
+@keyframes trial-direction-cue { 0%,100% { transform:translate(0,0); } 45% { transform:translate(var(--cue-x),var(--cue-y)); } }
+@keyframes trial-arrow-cue { 0%,100% { opacity:.65; } 45% { opacity:1; filter:drop-shadow(0 0 3px #8ead7c); } }
+@media (max-width:870px), (max-height:620px) and (pointer:coarse) {
+  .trial-header { display:none; }
+  .trial-dense-settings { display:inline-flex; align-items:center; }
+  .trial-card { padding-top:0; }
+  .trial-title { min-height:44px; }
+  .trial-objective { padding:2px 8px; }
+  .trial-objective small { display:none; }
+  .trial-goal-fruits svg { height:23px; }
+  .trial-stars-card { margin:1px 0; padding:0 7px; }
+  .trial-star-row { padding:1px 0; gap:6px; }
+  .trial-star-condition, .trial-star-condition.trial-challenge { line-height:1.45; }
+  .trial-feedback { min-height:30px; }
+  .trial-stats { padding:2px 0; }
+  .trial-legend { min-height:14px; }
+  .trial-actions { grid-template-columns:repeat(2,minmax(0,1fr)); gap:3px; }
+  .trial-tools,.trial-secondary { gap:3px; }
+  .trial-tools button,.trial-secondary button { font-size:.75rem; padding:0 2px; line-height:1.2; }
+  .trial-large-text .trial-actions { grid-template-columns:1fr; }
+  .trial-challenge-undo { margin-left:0; }
 }

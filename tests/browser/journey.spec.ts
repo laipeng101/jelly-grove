@@ -224,6 +224,7 @@ for (const id of [13, 14, 15, 16, 17, 18] as const) {
       const final = (await state(page)).session!;
       expect(final.state.phase).toBe("won");
       expect((await state(page)).best[id]).toBe(kind === "challenge" ? 3 : 2);
+      await page.locator("#trial-result-stay").click();
       await page.getByRole("button", { name: "↶ 撤销", exact: true }).click();
       expect((await state(page)).session!.state.phase).toBe("playing");
       await play(page, p.proof[kind].at(-1)!);

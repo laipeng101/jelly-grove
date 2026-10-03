@@ -1,5 +1,5 @@
 import "./view.css";
-import { fruitSVG, FRUITS } from "../art";
+import { fruitSVG, FRUITS, icon } from "../art";
 import { initAudio, setSound, setVolume, sound, stopAudio } from "../audio";
 import { loadSave, writeSave } from "../storage";
 import type { Board, Point } from "../engine";
@@ -22,6 +22,8 @@ import {
   serializeJourneySave,
 } from "./storage";
 import type { JourneySession, Move, ThemeId } from "./types";
+import { ChallengeMonitor, quickChallengeStatus, type ChallengeStatus } from "./challenge-client";
+import { animateConveyor, conveyorSteps } from "./motion";
 
 const esc = (s: unknown) =>
   String(s).replace(
@@ -35,6 +37,7 @@ const eq = (a: Point, b: Point) => a.r === b.r && a.c === b.c;
 const coord = (p: Point) => `${p.r + 1}行${p.c + 1}列`;
 const fruitName = (n: number) => FRUITS[n - 1]?.name ?? "水果";
 const starText = (n: number) => "★".repeat(n) + "☆".repeat(3 - n);
+const starIcons = (n: number) => Array.from({ length: 3 }, (_, i) => icon("star", i < n ? "lit" : "")).join("");
 
 /** The trial owns its DOM and events; the classic app never starts on this URL. */
 export function initJourneyView(app: HTMLElement) {
@@ -53,11 +56,63 @@ export function initJourneyView(app: HTMLElement) {
   let path: Point[] = [];
   let animationBoard: Board | null = null;
   let animation = 0;
+  const challengeMonitor = new ChallengeMonitor();
+  let challengeState: ChallengeStatus = { status: "unknown", reason: "" };
+  let moving: ReturnType<typeof animateConveyor> | null = null;
+  let idleTimer = 0;
+  let idleInterval = 0;
+  let pendingResult = false;
   let lastFocus: HTMLElement | null = null;
   let dialogOpen = false;
   let boardObserver: ResizeObserver | null = null;
   let session = () => save.session!;
   let theme = () => THEMES.find((t) => t.id === session().puzzle.themeId)!;
+  const motionEnabled = () => preferences.settings.motion && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function refreshChallenge() {
+    challengeMonitor.cancel();
+    if (!save.session) return;
+    challengeState = quickChallengeStatus(session().puzzle, session().state);
+    challengeMonitor.check(session().puzzle, session().state, value => {
+      challengeState = value;
+      if (!busy) {
+        const card = app.querySelector<HTMLElement>(".trial-card > .trial-stars-card");
+        if (card) {
+          const focusedAction = card.contains(document.activeElement)
+            ? (document.activeElement as HTMLElement).dataset.trial
+            : undefined;
+          const oldChallenge = card.querySelector(".trial-challenge");
+          if (oldChallenge) boardObserver?.unobserve(oldChallenge);
+          card.outerHTML = starConditions(session());
+          const replacement = app.querySelector<HTMLElement>(".trial-card > .trial-stars-card")!;
+          bindActions(replacement);
+          boardObserver?.observe(replacement.querySelector(".trial-challenge")!);
+          fitBoard();
+          if (focusedAction) {
+            const target = replacement.querySelector<HTMLElement>(`[data-trial="${focusedAction}"]`)
+              ?? app.querySelector<HTMLElement>(`.trial-tools [data-trial="${focusedAction}"]:not(:disabled)`);
+            target?.focus({ preventScroll: true });
+          }
+        }
+      }
+    });
+  }
+  function cancelIdle() {
+    clearTimeout(idleTimer);
+    clearInterval(idleInterval);
+    app.querySelector(".trial-board-shell")?.classList.remove("trial-idle-cue");
+  }
+  function scheduleIdle() {
+    cancelIdle();
+    if (!motionEnabled() || busy || selected || preview || dialogOpen || document.hidden || !save.session || session().state.phase !== "playing") return;
+    const shell = app.querySelector<HTMLElement>(".trial-board-shell");
+    const pulse = () => {
+      if (!shell?.isConnected || !motionEnabled() || document.hidden) return;
+      shell.classList.remove("trial-idle-cue");
+      void shell.offsetWidth;
+      shell.classList.add("trial-idle-cue");
+    };
+    idleTimer = window.setTimeout(() => { pulse(); idleInterval = window.setInterval(pulse, 3000); }, 1500);
+  }
   function challengeText() {
     const challenge = session().puzzle.challenge;
     if (challenge.kind === "preserve")
@@ -83,6 +138,7 @@ export function initJourneyView(app: HTMLElement) {
       label.textContent = storageOK ? "已自动保存" : "存储不可用，请导出";
   }
   function render() {
+    cancelIdle();
     const scrollPositions = [".trial-card", ".trial-board-viewport"].map(
       (selector) => {
         const element = app.querySelector<HTMLElement>(selector);
@@ -130,6 +186,7 @@ export function initJourneyView(app: HTMLElement) {
       fitBoard();
     }
     drawPath();
+    scheduleIdle();
     const renderedPage = app.querySelector(".trial-page")!;
     requestAnimationFrame(() => {
       if (!renderedPage.isConnected) return;
@@ -198,6 +255,32 @@ export function initJourneyView(app: HTMLElement) {
     );
     svg.querySelector("polyline")!.setAttribute("style", "stroke-width:4px");
   }
+  function starConditions(s: JourneySession, result = false) {
+    const won = s.state.phase === "won";
+    const first = won ? "achieved" : s.state.phase === "lost" ? "failed" : "pending";
+    const second = s.hintLevel > 0 ? "failed" : won ? "achieved" : "pending";
+    const third = challengeState.status === "achieved" ? "achieved" : challengeState.status === "failed" ? "failed" : "pending";
+    const rows = [
+      { status: first, condition: "完成送达目标", reason: won ? "送达目标已完成" : s.state.phase === "lost" ? "本盘暂时无法继续，可撤销" : "完成本盘订单即可获得" },
+      { status: second, condition: "本盘不用解题提示", reason: s.hintLevel > 0 ? "已使用解题提示，重试仍保留记录" : won ? "独立完成，未使用解题提示" : "规则说明、预览和自动检查不扣星" },
+      { status: third, condition: challengeText(), reason: challengeState.reason || (won ? "专属挑战已完成" : "满足专属挑战后通关") },
+    ];
+    return `<div class="trial-stars-card${result ? " trial-result-reasons" : ""}" aria-label="本盘三颗星条件">${rows.map((row, index) => `<div class="trial-star-row" data-star="${index + 1}" data-status="${row.status}"><span class="trial-condition-icon ${row.status}" aria-hidden="true">${icon("star", row.status === "achieved" ? "lit" : "")}${row.status === "failed" ? '<i></i>' : ""}</span><div><span class="trial-star-condition ${index === 2 ? "trial-challenge" : ""}">${esc(row.condition)}</span><span class="trial-star-reason">${row.status === "achieved" ? "已获得 · " : row.status === "failed" ? `${["送达星", "独立完成星", "第三星"][index]}已失去 · ` : ""}${esc(row.reason)}</span></div>${index === 2 && row.status === "failed" && s.history.length && !result ? `<button data-trial="undo" class="trial-challenge-undo" ${busy ? "disabled" : ""}>撤销一步</button>` : ""}</div>`).join("")}</div>`;
+  }
+  function resultDialog() {
+    const s = session();
+    if (s.state.phase !== "won") return;
+    const finalTheme = s.puzzle.themeId === 18;
+    pendingResult = false;
+    modal(finalTheme ? "六主题体验完成" : "莓好相遇，送达完成！", `<div class="result-fruits">${fruitSVG(3)}${fruitSVG(1)}${fruitSVG(2)}</div><div class="result-stars">${[true, s.hintLevel === 0, challengeState.status === "achieved"].map(earned => icon("star", earned ? "lit" : "")).join("")}</div>${starConditions(s, true)}<button id="trial-result-next" class="primary-button">${finalTheme ? "选择主题" : `进入下一主题 · ${THEMES.find(t => t.id === s.puzzle.themeId + 1)!.name}`} ${icon("arrow")}</button><button id="trial-result-stay" class="secondary-button">留在本盘</button><button id="trial-result-retry" class="secondary-button">${finalTheme ? "再玩一盘" : "重试本盘"}</button>`);
+    app.querySelector("#trial-result-next")!.addEventListener("click", () => {
+      closeModal();
+      if (finalTheme) themes();
+      else void start((s.puzzle.themeId + 1) as ThemeId);
+    });
+    app.querySelector("#trial-result-stay")!.addEventListener("click", closeModal);
+    app.querySelector("#trial-result-retry")!.addEventListener("click", () => { closeModal(); action(finalTheme ? "new" : "retry"); });
+  }
   function body(s: JourneySession) {
     const { puzzle: p, state: st } = s;
     const stage = p.stages[st.stageIndex];
@@ -209,7 +292,7 @@ export function initJourneyView(app: HTMLElement) {
       )
       .join("");
     const won = st.phase === "won";
-    return `<div class="trial-objective" aria-label="送达目标"><div><small>在采收口配对 · 送达</small><div class="trial-goal-fruits">${goals || "清空棋盘"}</div></div><button data-trial="challenge" class="trial-star" aria-label="查看三星条件">${starText(won ? earnedStars(s) : (save.best[p.themeId] ?? 0))}</button></div><div class="trial-challenge">第三星：${esc(challengeText())}</div><div class="trial-stats"><span>操作 <b>${st.moves}</b>${stage.budget === undefined ? "" : ` / ${stage.budget}`}</span><span>连消 <b>${st.combo}</b></span><span>得分 <b>${st.score}</b></span><span class="trial-juice" aria-label="果汁蓄能 ${st.juice}%">果汁 ${st.juice}%<i style="width:${st.juice}%"></i></span></div><div class="trial-board-viewport"><div class="trial-board-shell" style="--cols:${st.board[0].length};--rows:${st.board.length}"><div id="trial-board" class="trial-board ${preview ? "trial-preview" : ""}" role="group" aria-label="${preview ? "下一拍位置预览" : "水果棋盘"}">${boardHTML(s)}</div><svg class="trial-path" id="trial-path" aria-hidden="true" viewBox="-0.35 -0.35 ${st.board[0].length + 0.7} ${st.board.length + 0.7}" preserveAspectRatio="none">${path.length ? `<polyline points="${path.map((v) => `${Math.max(-0.2, Math.min(st.board[0].length + 0.2, v.c + 0.5))},${Math.max(-0.2, Math.min(st.board.length + 0.2, v.r + 0.5))}`).join(" ")}"/>` : ""}</svg></div></div><div class="trial-legend"><span>▣ 采收口</span><span>箭头：下一拍方向</span><span>坐标从左上角数</span></div><div class="trial-feedback ${st.phase !== "playing" ? "trial-ended" : ""}" role="status">${won ? `送达完成！${starText(earnedStars(s))} · 可撤销最后一步` : st.phase === "lost" ? `${esc(st.failure ?? "暂时无法继续")}，可以免费撤销。` : preview ? "预览整条轨道转一格（实际先消除，再移动）。点击预览返回。" : esc(message)}</div><div class="trial-tools"><button data-trial="undo" ${busy || !s.history.length ? "disabled" : ""}>↶ 撤销</button><button data-trial="preview" aria-pressed="${preview}" ${busy ? "disabled" : ""}>${preview ? "返回棋盘" : "下一拍"}</button><button data-trial="hint" ${busy ? "disabled" : ""}>解题提示</button></div><div class="trial-secondary"><button data-trial="retry" ${busy ? "disabled" : ""}>重试本盘</button><button data-trial="new" ${busy ? "disabled" : ""}>${busy ? "准备中…" : "换一盘"}</button><button data-trial="rules">玩法说明</button></div>`;
+    return `<div class="trial-objective" aria-label="送达目标"><div><small>在采收口配对 · 送达</small><div class="trial-goal-fruits">${goals || "清空棋盘"}</div></div><button data-trial="challenge" class="trial-star" aria-label="查看三星条件" title="${won ? "本盘收获" : "本主题最佳收获"} · ${won ? earnedStars(s) : (save.best[p.themeId] ?? 0)} 星">${starIcons(won ? earnedStars(s) : (save.best[p.themeId] ?? 0))}</button></div>${starConditions(s)}<div class="trial-stats"><span>操作 <b>${st.moves}</b>${stage.budget === undefined ? "" : ` / ${stage.budget}`}</span><span>连消 <b>${st.combo}</b></span><span>得分 <b>${st.score}</b></span><span class="trial-juice" aria-label="果汁蓄能 ${st.juice}%">果汁 ${st.juice}%<i style="width:${st.juice}%"></i></span></div><div class="trial-board-viewport"><div class="trial-board-shell" style="--cols:${st.board[0].length};--rows:${st.board.length}"><div id="trial-board" class="trial-board ${preview ? "trial-preview" : ""}" role="group" aria-label="${preview ? "下一拍位置预览" : "水果棋盘"}">${boardHTML(s)}</div><svg class="trial-path" id="trial-path" aria-hidden="true" viewBox="-0.35 -0.35 ${st.board[0].length + 0.7} ${st.board.length + 0.7}" preserveAspectRatio="none">${path.length ? `<polyline points="${path.map((v) => `${Math.max(-0.2, Math.min(st.board[0].length + 0.2, v.c + 0.5))},${Math.max(-0.2, Math.min(st.board.length + 0.2, v.r + 0.5))}`).join(" ")}"/>` : ""}</svg></div></div><div class="trial-legend"><span>▣ 采收口</span><span>箭头：下一拍方向</span><span>坐标从左上角数</span></div><div class="trial-feedback ${st.phase !== "playing" ? "trial-ended" : ""}" role="status">${won ? `送达完成！${starText(earnedStars(s))} · 可撤销最后一步` : st.phase === "lost" ? `${esc(st.failure ?? "暂时无法继续")}，可以免费撤销。` : preview ? "预览整条轨道转一格（实际先消除，再移动）。点击预览返回。" : esc(message)}</div><div class="trial-actions"><div class="trial-tools"><button data-trial="undo" ${busy || !s.history.length ? "disabled" : ""}>↶ 撤销</button><button data-trial="preview" aria-pressed="${preview}" ${busy ? "disabled" : ""}>${preview ? "返回棋盘" : "下一拍"}</button><button data-trial="hint" ${busy ? "disabled" : ""}>解题提示</button></div><div class="trial-secondary"><button data-trial="retry" ${busy ? "disabled" : ""}>重试本盘</button><button data-trial="new" ${busy ? "disabled" : ""}>${busy ? "准备中…" : "换一盘"}</button><button data-trial="rules">玩法说明</button></div></div>${won ? `<button data-trial="result" class="primary-button trial-result-entry">查看收获${p.themeId < 18 ? "／进入下一主题" : "／选择主题"} ${icon("arrow")}</button>` : ""}`;
   }
   function boardHTML(s: JourneySession) {
     const p = s.puzzle,
@@ -237,7 +320,7 @@ export function initJourneyView(app: HTMLElement) {
                 arrow =
                   next.r < r ? "↑" : next.r > r ? "↓" : next.c < c ? "←" : "→";
               });
-            return `<button class="trial-cell ${port ? "trial-port" : ""} ${value === -1 ? "trial-stone" : ""} ${selected && eq(selected, point) ? "selected" : ""} ${trackIndex >= 0 ? `on-track track-${trackIndex}` : ""}" data-trial-cell="${r},${c}" data-r="${r}" data-c="${c}" data-fruit="${value}" aria-label="${value > 0 ? fruitName(value) : value < 0 ? "石头" : "空格"}，第 ${r + 1} 行第 ${c + 1} 列${port ? "，采收口" : ""}${arrow ? `，轨道${trackIndex + 1}${arrow}` : ""}" aria-pressed="${!!selected && eq(selected, point)}" ${value <= 0 || preview || busy || st.phase !== "playing" ? "disabled" : ""}>${value > 0 ? fruitSVG(value) : value < 0 ? "◆" : ""}${arrow ? `<svg class="trial-arrow" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path transform="rotate(${{ "→": 0, "↓": 90, "←": 180, "↑": 270 }[arrow]} 6 6)" d="M2 6h8m-3-3 3 3-3 3"/></svg>` : ""}${port ? '<svg class="trial-port-mark" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><rect x="2" y="2" width="8" height="8" rx=".5"/><rect x="4.5" y="4.5" width="3" height="3" fill="currentColor" stroke="none"/></svg>' : ""}</button>`;
+            return `<button class="trial-cell ${port ? "trial-port" : ""} ${value === -1 ? "trial-stone" : ""} ${selected && eq(selected, point) ? "selected" : ""} ${trackIndex >= 0 ? `on-track track-${trackIndex}` : ""}" data-trial-cell="${r},${c}" data-r="${r}" data-c="${c}" data-fruit="${value}" style="--cue-x:${arrow === "→" ? 2 : arrow === "←" ? -2 : 0}px;--cue-y:${arrow === "↓" ? 2 : arrow === "↑" ? -2 : 0}px" aria-label="${value > 0 ? fruitName(value) : value < 0 ? "石头" : "空格"}，第 ${r + 1} 行第 ${c + 1} 列${port ? "，采收口" : ""}${arrow ? `，轨道${trackIndex + 1}${arrow}` : ""}" aria-pressed="${!!selected && eq(selected, point)}" ${value <= 0 || preview || busy || st.phase !== "playing" ? "disabled" : ""}>${value > 0 ? fruitSVG(value) : value < 0 ? "◆" : ""}${arrow ? `<svg class="trial-arrow" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path transform="rotate(${{ "→": 0, "↓": 90, "←": 180, "↑": 270 }[arrow]} 6 6)" d="M2 6h8m-3-3 3 3-3 3"/></svg>` : ""}${port ? '<svg class="trial-port-mark" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><rect x="2" y="2" width="8" height="8" rx=".5"/><rect x="4.5" y="4.5" width="3" height="3" fill="currentColor" stroke="none"/></svg>' : ""}</button>`;
           })
           .join(""),
       )
@@ -269,6 +352,7 @@ export function initJourneyView(app: HTMLElement) {
     }
     const previous = selected;
     const before = structuredClone(session().state.board);
+    const movementBefore = session().puzzle.stages[session().state.stageIndex].movement;
     const result = playMove(session(), { a: previous, b: point });
     if (!result.ok) {
       selected =
@@ -298,21 +382,23 @@ export function initJourneyView(app: HTMLElement) {
           : "轨道前进了一格，看看下一对在哪里。";
     recordJourneyResult(save, session());
     persist();
+    refreshChallenge();
+    pendingResult = session().state.phase === "won";
     render();
-    window.setTimeout(
-      () => {
+    const finish = () => {
         if (token !== animation) return;
         path = [];
         animationBoard = null;
+        moving = null;
         busy = false;
         render();
+        if (pendingResult && !dialogOpen && !document.hidden) resultDialog();
         if (!dialogOpen) focusCell(point);
-      },
-      preferences.settings.motion &&
-        !matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? 360
-        : 80,
-    );
+    };
+    if (motionEnabled()) {
+      moving = animateConveyor(app.querySelector<HTMLElement>(".trial-board-shell")!, conveyorSteps(before, { a: previous, b: point }, movementBefore), { a: previous, b: point });
+      void moving.finished.then(finish);
+    } else finish();
   }
   function focusCell(point: Point) {
     const target =
@@ -363,6 +449,7 @@ export function initJourneyView(app: HTMLElement) {
     if (name === "themes") return themes();
     if (name === "rules") return rules();
     if (!save.session || busy) return;
+    if (name === "result") return resultDialog();
     if (name === "pause") {
       stopAudio();
       persist();
@@ -378,6 +465,8 @@ export function initJourneyView(app: HTMLElement) {
         selected = null;
         preview = false;
         message = "已撤销一步，免费重新思考。";
+        pendingResult = false;
+        refreshChallenge();
         persist();
         render();
         app.querySelector<HTMLButtonElement>('[data-trial="undo"]')?.focus();
@@ -397,11 +486,14 @@ export function initJourneyView(app: HTMLElement) {
       app
         .querySelector("#trial-confirm-retry")!
         .addEventListener("click", () => {
+          pendingResult = false;
           closeModal();
           save.session = retrySession(session());
           selected = null;
           preview = false;
           message = "同一盘，试试另一种顺序。";
+          pendingResult = false;
+          refreshChallenge();
           persist();
           render();
         });
@@ -418,6 +510,9 @@ export function initJourneyView(app: HTMLElement) {
     }
   }
   async function start(id: ThemeId) {
+    moving?.cancel();
+    challengeMonitor.cancel();
+    pendingResult = false;
     request?.abort();
     const controller = new AbortController();
     request = controller;
@@ -443,6 +538,7 @@ export function initJourneyView(app: HTMLElement) {
       generation = `${result.source} · ${Math.round(result.elapsedMs)}ms`;
       message = THEMES.find((t) => t.id === id)!.lesson;
       busy = false;
+      refreshChallenge();
       persist();
       render();
     } catch (error) {
@@ -463,6 +559,7 @@ export function initJourneyView(app: HTMLElement) {
     }
   }
   function modal(title: string, content: string) {
+    cancelIdle();
     if (!dialogOpen) lastFocus = document.activeElement as HTMLElement;
     dialogOpen = true;
     app.querySelector<HTMLElement>(".trial-page")!.inert = true;
@@ -478,14 +575,18 @@ export function initJourneyView(app: HTMLElement) {
     app.querySelector<HTMLElement>(".trial-page")!.inert = false;
     dialogOpen = false;
     lastFocus?.focus({ preventScroll: true });
+    if (!lastFocus?.isConnected) app.querySelector<HTMLElement>('[data-trial="result"], [data-trial="pause"]')?.focus({ preventScroll: true });
+    scheduleIdle();
+    if (pendingResult && !busy && !document.hidden) resultDialog();
   }
   function themes() {
     modal(
       "六个主题，每次都新鲜",
-      `<p>流转送达 · 第三章。先从 13 关了解采收口，再挑战组合推演。</p><div class="trial-theme-list">${THEMES.map((t) => `<button data-pick-theme="${t.id}"><b>${t.id} · ${esc(t.name)} <em>${starText(save.best[t.id] ?? 0)}</em></b><span>${esc(t.lesson)}</span></button>`).join("")}</div><p class="trial-fine">换主题会替换当前棋盘，最佳星数保留。其余章节正在设计中。</p>`,
+      `<p>流转送达 · 第三章。先从 13 关了解采收口，再挑战组合推演。</p><div class="trial-theme-list">${THEMES.map((t) => `<button data-pick-theme="${t.id}"><b>${t.id} · ${esc(t.name)} <em class="trial-star-summary" aria-label="最佳 ${save.best[t.id] ?? 0} 星">${starIcons(save.best[t.id] ?? 0)}</em></b><span>${esc(t.lesson)}</span></button>`).join("")}</div><p class="trial-fine">换主题会替换当前棋盘，最佳星数保留。其余章节正在设计中。</p>`,
     );
     app.querySelectorAll<HTMLButtonElement>("[data-pick-theme]").forEach((b) =>
       b.addEventListener("click", () => {
+        pendingResult = false;
         closeModal();
         void start(Number(b.dataset.pickTheme) as ThemeId);
       }),
@@ -494,7 +595,7 @@ export function initJourneyView(app: HTMLElement) {
   function rules() {
     modal(
       "流转送达 · 玩法小抄",
-      `<ol class="trial-rules"><li>依次点选相同水果，空格和外沿都能走，连线最多转两次弯。石头不能穿过。</li><li>每次成功配对后，所有轨道沿箭头同时转一格，空位一起移动。预览展示整条轨道下一拍的位置，不会消耗操作。</li><li>目标配对时，至少一个水果在标记 ▣ 的采收口才算送达。仅经过采收口不算；以消除前的位置判断。</li><li>目标水果可以在站外消除，但必须留够目标数量。系统只保护数量，能否继续开路和推进需要你判断。</li><li>无可用配对或操作数用尽就失败。仍有配对也可能已经无解，可以随时免费撤销回开局。</li><li>连消、果汁不随思考时间衰减；满槽庆祝。撤销恢复奖励。</li></ol><p>方向键移动焦点，Enter 选中，Z 撤销，H 提示，P 预览，空格暂停。</p><p class="trial-fine">第一星通关 · 第二星不用解题提示 · 第三星达成本盘挑战。规则说明和下一拍预览不扣星。</p>`,
+      `<ol class="trial-rules"><li>依次点选相同水果，空格和外沿都能走，连线最多转两次弯。石头不能穿过。</li><li>每次成功配对后，所有轨道沿箭头同时转一格，空位一起移动。预览展示整条轨道下一拍的位置，不会消耗操作。</li><li>目标配对时，至少一个水果在标记 ▣ 的采收口才算送达。仅经过采收口不算；以消除前的位置判断。</li><li>目标水果可以在站外消除，但必须留够目标数量。系统只保护数量，能否继续开路和推进需要你判断。</li><li>无可用配对或操作数用尽就失败。仍有配对也可能已经无解，可以随时免费撤销回开局。</li><li>连消、果汁不随思考时间衰减；满槽庆祝。撤销恢复奖励。</li></ol><p>方向键移动焦点，Enter 选中，Z 撤销，H 提示，P 预览，空格暂停。</p><p class="trial-fine">完成送达 · 不用解题提示 · 达成本盘挑战，各收获一颗星。规则说明和下一拍预览不扣星。</p>`,
     );
   }
   function challenge() {
@@ -537,6 +638,7 @@ export function initJourneyView(app: HTMLElement) {
       app.querySelector(`#trial-${key}`)!.addEventListener("click", () => {
         preferences.settings[key] = !preferences.settings[key];
         syncPreferences();
+        if (!motionEnabled()) moving?.cancel();
         writeSave(preferences);
         settings();
         app.querySelector<HTMLButtonElement>(`#trial-${key}`)?.focus();
@@ -593,7 +695,10 @@ export function initJourneyView(app: HTMLElement) {
         .querySelector("#trial-confirm-import")!
         .addEventListener("click", () => {
           request?.abort();
+          moving?.cancel();
+          challengeMonitor.cancel();
           animation++;
+          pendingResult = false;
           closeModal();
           save = imported;
           selected = null;
@@ -603,6 +708,8 @@ export function initJourneyView(app: HTMLElement) {
           animationBoard = null;
           message = "试玩进度已导入。";
           generation = "";
+          pendingResult = false;
+          refreshChallenge();
           persist();
           render();
           if (!save.session) void start(13);
@@ -664,17 +771,31 @@ export function initJourneyView(app: HTMLElement) {
   });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
+      cancelIdle();
+      moving?.cancel();
       stopAudio();
       persist();
       if (!dialogOpen && save.session && !busy) action("pause");
-    }
+    } else scheduleIdle();
   });
   window.addEventListener("pagehide", () => {
+    cancelIdle();
+    moving?.cancel();
+    challengeMonitor.cancel();
     stopAudio();
     persist();
     request?.abort();
   });
-  window.addEventListener("resize", drawPath);
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    // A cached document resumes with its terminated workers still gone.
+    refreshChallenge();
+    scheduleIdle();
+    if (pendingResult && !busy && !dialogOpen && !document.hidden) resultDialog();
+  });
+  window.addEventListener("resize", () => { moving?.cancel(); drawPath(); });
+  matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", () => { if (!motionEnabled()) moving?.cancel(); scheduleIdle(); });
+  refreshChallenge();
   render();
   if (loaded.warning) {
     const canExportOriginal = loaded.rawBackup !== undefined;
