@@ -76,11 +76,11 @@
 
 开发验证：`npm run verify`（不含审核工具测试）；审核工具测试：`node --test --import tsx tools/journey-review/*.test.mjs`，浏览器助手需已有4180生产预览。六主题各100次Node生成基准：`npm run journey:benchmark`；真实浏览器Worker基准：`npm run journey:benchmark:browser`。`npm run journey:backups` 会重建受版本控制的备用局，属于关卡内容变更，需要重新构建并重做冻结审核。冻结与检查命令为 `npm run journey:freeze`、`npm run journey:check-freeze`。
 
-当前六主题采用[风险驱动验收契约v2](JOURNEY-ACCEPTANCE.md)，不再机械重复三轮全量审核。冻结收口只读检查：`node tools/journey-review/closeout.mjs`，复用有效证据并校验必需缺口；当前工作区结论为`PASS_WITH_RESIDUAL_RISK`，普通克隆缺少审核附件会明确返回`INCOMPLETE`，不应反复重跑或伪造通过。
+当前六主题采用[风险驱动验收契约v2](JOURNEY-ACCEPTANCE.md)，不再机械重复三轮全量审核。2026-10-03按用户要求暂缓真人与物理设备验证，取消固定机型要求，优先核验第18主题初盘可解性；当前调查与盲玩问题处置见 [第18主题可解性核验](THEME18-SOLVABILITY.md)。其余关卡暂不扩展。
 
-审核工具回归：`node --test --import tsx tools/journey-review/*.test.mjs`。下一次补充使用8/3/1分钟硬分段预算，不得把证据采集和浏览器关闭拖出总预算。
+第18主题核验：`node --test --import tsx tools/journey-review/theme18-*.test.mjs`，全量技术调查运行 `node --import tsx tools/journey-review/theme18-solvability.ts`（默认1000次Node生成及100次离线浏览器生成）。使用独立BFS、规则与穷举模型，检查历史失败初盘、全部32个备用盘、实时生成和运行时逐状态一致性；不计作盲玩或真人验收。
 
-[当前收口状态](JOURNEY-CLOSEOUT.md)：主产品门槛通过，三次定向补充均如实未完成，最终为`PASS_WITH_RESIDUAL_RISK`；停止重复全量审核基于已界定残余风险，不等于把补充改写为PASS。
+[历史收口状态](JOURNEY-CLOSEOUT.md)：2026-10-02门禁为`PASS_WITH_RESIDUAL_RISK`，三次补充保持原`INCOMPLETE`。`node tools/journey-review/closeout.mjs`继续校验该历史契约及原附件；不代表2026-10-03可解性调查的状态。普通克隆缺少本地附件会返回`INCOMPLETE`。本次关闭“初盘生成无解导致盲玩失败”的技术疑点，不重启盲玩，也不把旧报告改写为PASS。
 
 ## 原模式存档
 
