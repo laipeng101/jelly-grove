@@ -9,14 +9,39 @@ import {
   generatePuzzle,
 } from "../src/journey/generator";
 import {
+  attemptMatch,
   challengeMet,
   initialState,
+  legalMoves,
   validatePuzzle,
 } from "../src/journey/rules";
 import { replay, solve, stateKey } from "../src/journey/solver";
 import type { Board, Point } from "../src/engine";
-import type { Move, Puzzle, ThemeId } from "../src/journey/types";
+import type { JourneyState, Move, Puzzle, ThemeId } from "../src/journey/types";
 const ids = [13, 14, 15, 16, 17, 18] as ThemeId[];
+// Candidate seeds, selected from live generation. Certification tests use a
+// node limit. The browser benchmark measures the separate wall-clock budget.
+const certifiedSeeds = {
+  13: [1042873982, 3100085544, 1702919105, 558921219],
+  14: [812331428, 3830217679, 2796966635, 3786991894],
+  15: [4108331548, 3119781033, 3087857392, 2791264831],
+  16: [2401603480, 151419055, 1733024013, 254861626],
+  17: [3926537029, 2889646291, 374272991, 1320971813],
+  18: [
+    2892702061, 3894613900, 1571812768, 540155658, 4142953125, 2349384541,
+    2396214160, 448556498,
+  ],
+};
+
+function certifyCandidate(themeId: ThemeId, seed: number) {
+  const puzzle = candidate(themeId, seed);
+  assert.equal(
+    certify(puzzle, solve(puzzle, { deadline: Infinity })),
+    true,
+    puzzle.id,
+  );
+  return puzzle;
+}
 /** Independent directional BFS, deliberately not the production path enumerator. */
 function connects(board: Board, a: Point, b: Point): boolean {
   if (
@@ -155,23 +180,42 @@ function independentReplay(p: Puzzle, moves: Move[]) {
 }
 function independentMinimum(p: Puzzle): number {
   const memo = new Map<string, number>();
-  const visit = (s: Independent): number => {
+  const moveKey = ({ a, b }: Move) =>
+    [`${a.r},${a.c}`, `${b.r},${b.c}`].sort().join(":");
+  const visit = (s: Independent, runtime: JourneyState): number => {
+    assert.deepEqual(runtime.board, s.board, p.id);
+    assert.deepEqual(runtime.progress[0], s.progress, p.id);
+    assert.equal(runtime.fuelUsed, s.fuel, p.id);
+    assert.equal(runtime.phase === "won", won(p, s), p.id);
     if (won(p, s)) return s.fuel;
     const key = JSON.stringify([s.board, s.progress, s.fuel]);
-    if (memo.has(key)) return memo.get(key)!;
+    const known = memo.get(key);
+    if (known !== undefined) return known;
     const cells = s.board.flatMap((row, r) =>
       row.flatMap((v, c) => (v > 0 ? [{ r, c }] : [])),
     );
-    let min = Infinity;
+    const expected = new Map<string, { move: Move; next: Independent }>();
     for (let i = 0; i < cells.length; i++)
       for (let j = i + 1; j < cells.length; j++) {
-        const n = independentStep(p, s, { a: cells[i], b: cells[j] });
-        if (n) min = Math.min(min, visit(n));
+        const move = { a: cells[i], b: cells[j] };
+        const next = independentStep(p, s, move);
+        if (next) expected.set(moveKey(move), { move, next });
       }
+    assert.deepEqual(
+      legalMoves(p, runtime).map(moveKey).sort(),
+      [...expected.keys()].sort(),
+      p.id,
+    );
+    let min = Infinity;
+    for (const { move, next } of expected.values()) {
+      const result = attemptMatch(p, runtime, move);
+      assert.ok(result.ok, p.id);
+      min = Math.min(min, visit(next, result.state));
+    }
     memo.set(key, min);
     return min;
   };
-  return visit(independentInitial(p));
+  return visit(independentInitial(p), initialState(p));
 }
 
 test("all 192 backups have independent ordinary/challenge/nonchallenge proofs and semantic diversity", () => {
@@ -193,14 +237,11 @@ test("all 192 backups have independent ordinary/challenge/nonchallenge proofs an
     }
   }
 });
-test("fresh generation changes geometry/partnership and verifies meaningful critical branches", () => {
+test("certified candidates vary geometry and partnerships and verify meaningful critical branches", () => {
   for (const themeId of ids) {
     const seen = new Set<string>();
-    for (let seed = 1; seed <= 4; seed++) {
-      const r = generatePuzzle(themeId, 730000 + themeId * 100 + seed);
-      assert.equal(r.status, "generated");
-      if (r.status !== "generated") continue;
-      const p = r.puzzle;
+    for (const seed of certifiedSeeds[themeId].slice(0, 4)) {
+      const p = certifyCandidate(themeId, seed);
       seen.add(fingerprint(p));
       assert.ok(
         independentChallenge(p, independentReplay(p, p.proof.challenge)),
@@ -219,7 +260,7 @@ test("fresh generation changes geometry/partnership and verifies meaningful crit
         assert.ok(bad);
         const searched = solve(p, {
           start: bad,
-          deadline: performance.now() + 3000,
+          deadline: Infinity,
         });
         assert.notEqual(searched.status, "unknown");
         assert.equal(searched.root.challenge, null);
@@ -230,6 +271,13 @@ test("fresh generation changes geometry/partnership and verifies meaningful crit
     assert.equal(seen.size, 4);
   }
 });
+test("a new generation request returns a certified puzzle from the requested theme", () => {
+  const result = generatePuzzle(13, 731303, 10_000);
+  assert.equal(result.status, "generated");
+  const p = result.puzzle;
+  assert.equal(p.themeId, 13);
+  assert.ok(independentChallenge(p, independentReplay(p, p.proof.challenge)));
+});
 test("bounded solver reports unknown and certification never admits incomplete evidence", () => {
   const p = candidate(13, 123);
   const r = solve(p, { maxNodes: 0 });
@@ -237,13 +285,42 @@ test("bounded solver reports unknown and certification never admits incomplete e
   assert.equal(certify(p, r), false);
   assert.equal(generatePuzzle(13, 123, 0).status, "unknown");
 });
+test("a theme 18 board with an impossible initial order is rejected despite stored proofs", () => {
+  const p = certifyCandidate(18, 3277061652);
+  const goal = p.stages[0].goal;
+  assert.equal(goal.kind, "deliver");
+  const fruit = Number(Object.keys(goal.quotas)[0]);
+  p.initial = p.initial.map((row) => row.map((v) => (v === fruit ? -1 : v)));
+  assert.equal(independentMinimum(p), Infinity);
+  const result = solve(p, { deadline: Infinity });
+  assert.equal(result.status, "unsolvable");
+  assert.equal(certify(p, result), false);
+});
+test("all seven historically unfinished theme 18 seeds have both challenge and nonchallenge wins", () => {
+  for (const seed of [
+    3277061652, 4227811622, 1311065588, 153269126, 3184609586, 2598603657, 1210425299,
+  ]) {
+    const p = certifyCandidate(18, seed);
+    assert.ok(
+      independentChallenge(p, independentReplay(p, p.proof.challenge)),
+      p.id,
+    );
+    const ordinary = independentReplay(p, p.proof.ordinary);
+    assert.ok(won(p, ordinary), p.id);
+    assert.equal(independentChallenge(p, ordinary), false, p.id);
+    assert.equal(independentMinimum(p), p.proof.minimumFuel, p.id);
+  }
+});
 test("backup selection avoids latest twenty and cloning protects bundled data", () => {
-  const pool = (backups as Puzzle[]).filter((p) => p.themeId === 13),
-    recent = pool.slice(0, 20).map((p) => p.id);
-  const p = selectBackup(13, recent, () => 0);
-  assert.ok(!recent.includes(p.id));
-  p.initial[0][0] = 99;
-  assert.notEqual(selectBackup(13, recent, () => 0).initial[0][0], 99);
+  for (const themeId of ids) {
+    const recent = (backups as Puzzle[])
+      .filter((p) => p.themeId === themeId)
+      .map((p) => p.id);
+    const p = selectBackup(themeId, recent, () => 0);
+    assert.ok(!recent.slice(-20).includes(p.id));
+    p.initial[0][0] = 99;
+    assert.notEqual(selectBackup(themeId, recent, () => 0).initial[0][0], 99);
+  }
 });
 test("replay agrees with normal runtime terminal challenge evaluation", () => {
   for (const p of (backups as Puzzle[]).filter((_, i) => i % 17 === 0)) {
@@ -523,13 +600,11 @@ test("integrated certification rejects unknown, missing DAG evidence and expired
   }
 });
 
-test("every integrated backup and fresh challenge route requires both consequential choices", () => {
-  const puzzles = (backups as Puzzle[]).filter((p) => p.themeId === 18);
-  for (let i = 0; i < 8; i++) {
-    const result = generatePuzzle(18, (0xc3180000 + i * 2654435761) >>> 0);
-    assert.equal(result.status, "generated");
-    if (result.status === "generated") puzzles.push(result.puzzle);
-  }
+test("every integrated backup and certified sample requires both consequential choices", () => {
+  const puzzles = [
+    ...(backups as Puzzle[]).filter((p) => p.themeId === 18),
+    ...certifiedSeeds[18].map((seed) => certifyCandidate(18, seed)),
+  ];
   for (const p of puzzles)
     assert.deepEqual(
       independentTeachingBypasses(p),

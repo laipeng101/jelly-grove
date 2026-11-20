@@ -3,9 +3,12 @@ import { createHash } from "node:crypto";
 import { generatePuzzle, fingerprint } from "../src/journey/generator";
 import { replay } from "../src/journey/solver";
 import { challengeMet } from "../src/journey/rules";
-import type { ThemeId } from "../src/journey/types";
-const count = Number(process.env.JOURNEY_BENCH_COUNT || 100),
+import { GENERATOR_VERSION, type ThemeId } from "../src/journey/types";
+const count = Number(process.env.JOURNEY_BENCH_COUNT ?? 100),
   base = Number(process.env.JOURNEY_BENCH_SEED || 980000);
+if (!Number.isSafeInteger(count) || count < 1) {
+  throw new Error("JOURNEY_BENCH_COUNT must be a positive integer");
+}
 const themes = [];
 let failed = false;
 for (const themeId of [13, 14, 15, 16, 17, 18] as ThemeId[]) {
@@ -73,7 +76,12 @@ mkdirSync("output/journey", { recursive: true });
 writeFileSync(
   "output/journey/generation-benchmark.json",
   JSON.stringify(
-    { generatorVersion: 1, baseSeed: base, clock: "performance.now", themes },
+    {
+      generatorVersion: GENERATOR_VERSION,
+      baseSeed: base,
+      clock: "performance.now",
+      themes,
+    },
     null,
     2,
   ),

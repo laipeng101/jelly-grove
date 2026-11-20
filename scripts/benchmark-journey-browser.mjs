@@ -1,15 +1,23 @@
 import { chromium } from "@playwright/test";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
+import { resolve } from "node:path";
 
-const count = Number(process.env.JOURNEY_BENCH_COUNT || 100);
-const url = process.env.JOURNEY_URL || "http://127.0.0.1:4180/?play=lab";
+const count = Number(process.env.JOURNEY_BENCH_COUNT ?? 100);
+if (!Number.isSafeInteger(count) || count < 1) {
+  throw new Error("JOURNEY_BENCH_COUNT must be a positive integer");
+}
+const file = pathToFileURL(resolve("dist/果冻果园.html"));
+const offlineHash = createHash("sha256").update(await readFile(file)).digest("hex");
+file.searchParams.set("play", "lab");
 const browser = await chromium.launch();
 const context = await browser.newContext({
   viewport: { width: 360, height: 640 },
   isMobile: true,
   hasTouch: true,
   reducedMotion: "reduce",
+  offline: true,
 });
 const page = await context.newPage();
 const errors = [];
@@ -49,7 +57,7 @@ const current = () =>
   }, key);
 const themes = [];
 try {
-  await page.goto(url);
+  await page.goto(file.href);
   await page.locator("#trial-board").waitFor();
   for (const themeId of [13, 14, 15, 16, 17, 18]) {
     const runs = [];
@@ -96,9 +104,7 @@ try {
     viewport: { width: 360, height: 640 },
     clock:
       "Real Chromium Worker wall clock, including startup; desktop mobile emulation",
-    offlineHash: createHash("sha256")
-      .update(await readFile("dist/果冻果园.html"))
-      .digest("hex"),
+    offlineHash,
     errors,
     themes,
   };

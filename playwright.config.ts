@@ -25,6 +25,6 @@ export default defineConfig({
     // output/ and can otherwise reload a game while another test writes evidence.
     command: "npm run preview -- --host 127.0.0.1 --port 4179 --strictPort",
     url: "http://127.0.0.1:4179",
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
   },
 });

@@ -156,8 +156,9 @@ html.compact-play {
 }
 .compact-play .score-strip strong {
   min-width: 0;
+  /* Let the line box follow system font metrics when text is enlarged. */
   font:
-    600 1.125rem/1.2 system-ui,
+    600 1.125rem system-ui,
     sans-serif;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;

@@ -2,7 +2,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { generatePuzzle, fingerprint } from "../src/journey/generator";
 import { replay } from "../src/journey/solver";
 import { challengeMet } from "../src/journey/rules";
-import type { Puzzle, ThemeId } from "../src/journey/types";
+import { GENERATOR_VERSION, type Puzzle, type ThemeId } from "../src/journey/types";
 const backups: Puzzle[] = [],
   metrics = [];
 for (const theme of [13, 14, 15, 16, 17, 18] as ThemeId[]) {
@@ -37,5 +37,5 @@ writeFileSync("src/journey/backups.json", JSON.stringify(backups));
 mkdirSync("output/journey", { recursive: true });
 writeFileSync(
   "output/journey/backups-report.json",
-  JSON.stringify({ generatorVersion: 1, metrics }, null, 2),
+  JSON.stringify({ generatorVersion: GENERATOR_VERSION, metrics }, null, 2),
 );
