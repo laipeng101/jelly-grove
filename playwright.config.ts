@@ -11,7 +11,6 @@ export default defineConfig({
     ["html", { outputFolder: "output/playwright/report", open: "never" }],
   ],
   use: {
-    baseURL: "http://127.0.0.1:4179",
     browserName: "chromium",
     viewport: { width: 390, height: 700 },
     isMobile: true,
@@ -21,10 +20,11 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    // Test the production build. A dev server watches trace/report HTML under
-    // output/ and can otherwise reload a game while another test writes evidence.
-    command: "npm run preview -- --host 127.0.0.1 --port 4179 --strictPort",
-    url: "http://127.0.0.1:4179",
-    reuseExistingServer: false,
+    // Build before previewing. Port 0 lets the OS assign a free loopback port.
+    command: "npm run build && npm run preview -- --host 127.0.0.1 --port 0",
+    wait: {
+      // Playwright's baseURL fixture reads this environment variable in each worker.
+      stdout: /Local:\s+(?<PLAYWRIGHT_TEST_BASE_URL>http:\/\/127\.0\.0\.1:\d+\/)/,
+    },
   },
 });

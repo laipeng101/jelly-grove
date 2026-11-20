@@ -1,11 +1,6 @@
 # 开发验证
 
-运行 `npm ci` 安装依赖。首次使用 Playwright 时运行 `npx playwright install chromium`。如果运行环境的默认缓存不可写，先将 npm 和浏览器缓存指向可写目录。后续执行浏览器检查时沿用安装时的 `PLAYWRIGHT_BROWSERS_PATH`。下面是 Linux 示例。
-
-```sh
-export npm_config_cache=/tmp/jelly-grove-npm-cache
-export PLAYWRIGHT_BROWSERS_PATH=/tmp/jelly-grove-playwright
-```
+首次执行浏览器回归或 Playwright 锁定版本变更后，运行 `npm run browser:install`。只运行无头回归时可追加 `-- --only-shell`，减少首次下载。npm 和 Playwright 分别使用仓库内的 `.cache/npm` 和 `.cache/playwright`，云端主目录只读时也能安装。
 
 | 场景 | 入口 |
 | --- | --- |
@@ -15,7 +10,7 @@ export PLAYWRIGHT_BROWSERS_PATH=/tmp/jelly-grove-playwright
 | 生成质量或预算变化 | `npm run journey:benchmark` 与 `npm run journey:benchmark:browser`，分别覆盖 Node.js 求解与断网单文件中的 Chromium Worker |
 | 确需替换备用盘 | `npm run journey:backups` 重建受版本控制的备用库，随后检查关卡内容差异并执行完整回归和生成基准 |
 
-Playwright 使用 `127.0.0.1:4179`，端口须空闲。报告和失败 trace 位于 `output/playwright/`。浏览器基准自己构建并打开本地 HTML，报告的 SHA-256 对应该文件；两个生成基准默认每主题 100 次，可用 `JOURNEY_BENCH_COUNT` 缩小排查样本。基准结果写入 `output/journey/`。
+Playwright 每次启动独立回环端口。报告和失败 trace 位于 `output/playwright/`。浏览器基准自己构建并打开本地 HTML，报告的 SHA-256 对应该文件。两个生成基准默认每主题 100 次，可用 `JOURNEY_BENCH_COUNT` 缩小排查样本。基准结果写入 `output/journey/`。
 
 紧凑布局按照[可见性契约](DESIGN.md#手机对局信息可见性契约)验证实际可视区域、无遮挡命中、触控尺寸和放大文字重排。试玩验证另外覆盖各主题的普通胜利与挑战、存档与撤销、过期 Worker 结果、导航、动效以及 `file://` 冷启动。生成准入和有解性依据[关卡设计](LEVEL-DESIGN.md)。
 
