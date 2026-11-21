@@ -284,7 +284,7 @@ test("hint alternatives name the same starting position even when a rejected fir
   await page.getByRole("button", { name: "使用提示 · 展开主题思路" }).click();
   await page.getByRole("button", { name: "展开本盘关键关系" }).click();
   const relation = page.locator(".trial-hint-choices").first();
-  await expect(relation).toContainText("两者都从此时的棋盘出发");
+  await expect(relation).toContainText("以下两种选项都以初盘为准");
   await expect(relation.locator("p").nth(1)).toContainText(
     "选项 A：2行1列 ↔ 2行3列。这样做仍有机会完成本盘挑战",
   );
@@ -884,12 +884,12 @@ test("invalid import never changes current game; export can round-trip", async (
   await page.locator("#trial-import").setInputFiles({
     name: "broken.json",
     mimeType: "application/json",
-    buffer: Buffer.from('{"version":2}'),
+    buffer: Buffer.from('{"version":'),
   });
   await expect(page.getByRole("dialog")).toContainText("无法导入");
+  await expect(page.getByRole("dialog")).toContainText("存档不是完整的 JSON 文件");
   expect(await state(page)).toEqual(before);
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "音效与设置" }).click();
+  await page.getByRole("button", { name: "返回设置" }).click();
   await page.locator("#trial-import").setInputFiles(path!);
   await page.getByRole("button", { name: "确认导入", exact: true }).click();
   expect(await state(page)).toEqual(before);

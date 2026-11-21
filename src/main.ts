@@ -3,6 +3,7 @@ import "./compact.css";
 import { initJourneyView } from "./journey/view";
 import { classicLevel } from "./classic-levels";
 import { observePlayLayout } from "./play-layout";
+import { offlineDownloadNote } from "./offline";
 import {
   LEVELS,
   CHAPTERS,
@@ -31,6 +32,8 @@ import {
   loadSave,
   writeSave,
   parseSave,
+  readSaveFile,
+  watchSaveSettings,
   type Game,
   type Mode,
 } from "./storage";
@@ -170,14 +173,32 @@ function starsEarned() {
     1 + (g.assists === 0 ? 1 : 0) + (g.bestCombo >= config().target ? 1 : 0)
   );
 }
-function render() {
-  hudCache.clear();
+function applySettings() {
   setSound(data.settings.sound);
   setVolume(data.settings.volume);
   document.documentElement.classList.toggle(
     "reduce-motion",
     !data.settings.motion,
   );
+  const soundButton = app.querySelector('[data-action="sound"]');
+  if (soundButton) {
+    soundButton.innerHTML = icon(data.settings.sound ? "sound" : "mute");
+    soundButton.setAttribute("aria-label", data.settings.sound ? "关闭音效" : "开启音效");
+  }
+  const slider = $("setting-volume") as HTMLInputElement | null;
+  if (!slider) return;
+  slider.value = String(Math.round(data.settings.volume * 100));
+  slider.disabled = !data.settings.sound;
+  $("volume-value").textContent = `${slider.value}%`;
+  for (const key of ["sound", "motion"] as const) {
+    const button = $(`setting-${key}`);
+    button.classList.toggle("on", data.settings[key]);
+    button.setAttribute("aria-checked", String(data.settings[key]));
+  }
+}
+function render() {
+  hudCache.clear();
+  applySettings();
   const l = config(),
     chapter = CHAPTERS[l.chapter];
   document.body.classList.toggle("deep-grove", g.board.length > 6);
@@ -205,7 +226,7 @@ function render() {
   <div class="round-objectives" id="round-objectives" aria-label="本局目标"></div>
   <div class="play-meters"><div class="combo-meter"><span id="combo-label">连消 · 慢慢找也没关系</span><div class="meter-track"><i id="combo-window"></i></div></div><div class="mini-juice"><span id="mini-juice-label">缤纷蓄能 0%</span><div class="meter-track"><i id="mini-juice-fill"></i></div></div></div>
   <div class="board-viewport" id="board-viewport" role="region" aria-label="棋盘区域"><div class="board-shell" id="board-shell"><div class="board" id="board" role="group" aria-label="水果棋盘"></div><svg id="connections" class="connections" aria-hidden="true"></svg><div class="particles" id="particles" aria-hidden="true"></div><div id="board-announcement" class="board-announcement" aria-live="polite"></div></div></div>
-  <div class="board-caption"><span id="play-caption">${g.mode === "journey" && g.level === 1 ? "点一下水果，再点它的同伴。" : "找到一对相同的水果，连起好心情。"}</span><span class="combo-badge" id="combo-badge"></span><div id="play-toast" class="play-toast" role="status"></div></div>
+  <div class="board-caption"><span id="play-caption">${g.mode === "journey" && g.level === 1 ? "点两颗相同水果，最多两弯，可绕外沿。" : "找到一对相同的水果，连起好心情。"}</span><span class="combo-badge" id="combo-badge"></span><div id="play-toast" class="play-toast" role="status"></div></div>
   <div class="tools"><button data-action="hint" class="tool-button" title="标出一对可连接的水果（H）">${icon("hint")}<span>提示<small>找点灵感</small></span><kbd>H</kbd></button><button data-action="shuffle" class="tool-button" title="重新排列剩余水果（S）">${icon("shuffle")}<span>洗牌<small>换个心情</small></span><kbd>S</kbd></button><button data-action="undo" class="tool-button" id="undo-button" title="撤销上一步（Z）">${icon("undo")}<span>撤销<small>再想一步</small></span><kbd>Z</kbd></button></div></section>
   <aside class="right-column"><section class="juice-card"><div class="overline">A LITTLE EXTRA SWEET</div><h2>好心情，蓄满中</h2><p>每次相遇，都在积攒快乐。</p><div class="juice-visual"><span class="juice-spark a">✦</span><span class="juice-spark b">✧</span><div class="juice-jar"><div class="juice-water" id="juice-water"><i></i><i></i><i></i></div><span class="jar-face"><i></i><i></i><b>⌣</b></span><span class="jar-shine"></span><span class="jar-tick t1"></span><span class="jar-tick t2"></span><span class="jar-tick t3"></span><span class="jar-fruit">${fruitSVG(1)}</span></div><span class="juice-percent" id="juice-percent">${g.juice}<small>%</small></span></div><div class="juice-description" id="juice-description">蓄满即开启 <strong>缤纷时刻</strong><br><span>10 秒双倍分数，快乐加一点料。</span></div><div class="juice-track"><i id="juice-track-fill"></i></div></section>
   <section class="harvest-card"><div class="harvest-title">${icon("star")}<h3>${g.mode === "journey" ? "这一关的小收获" : "留下你的高光"}</h3></div><div id="star-objectives" class="star-objectives"></div><div class="fruit-friends">${fruitSVG(2)}${fruitSVG(1)}${fruitSVG(3)}</div><p>每一颗，都有自己的甜。</p></section></aside></div>
@@ -545,11 +566,7 @@ async function match(a: Point, b: Point, path: Point[]) {
   hintPair = [];
   save();
   updateHUD();
-  caption(
-    g.combo >= 3
-      ? `${g.combo} 连消！好事正在接连发生。`
-      : `甜甜相遇 +${outcome.points} · 再找一对吧。`,
-  );
+  caption(`甜甜相遇 +${outcome.points} · 再找一对吧。`);
   await new Promise((r) => setTimeout(r, data.settings.motion ? 260 : 45));
   if (token !== animation) return;
   $("connections").innerHTML = "";
@@ -694,14 +711,8 @@ function action(a: string) {
   if (a === "mode-options") showModeOptions(g.mode);
   if (a === "sound") {
     data.settings.sound = !data.settings.sound;
-    setSound(data.settings.sound);
+    applySettings();
     save();
-    const btn = document.querySelector('[data-action="sound"]')!;
-    btn.innerHTML = icon(data.settings.sound ? "sound" : "mute");
-    btn.setAttribute(
-      "aria-label",
-      data.settings.sound ? "关闭音效" : "开启音效",
-    );
     toast(
       data.settings.sound
         ? "声音已开启，小小音符准备好啦。"
@@ -813,7 +824,7 @@ function showHelp() {
 function showSettings() {
   openModal(
     "settings",
-    `<div class="overline">A GROVE THAT FEELS LIKE YOU</div><h2 id="dialog-title">让果园，合你的心意。</h2><div class="setting-row"><div><strong>果园音效</strong><span>清亮的水果音，偶尔收获一点惊喜</span></div><button role="switch" aria-checked="${data.settings.sound}" id="setting-sound" class="switch ${data.settings.sound ? "on" : ""}" aria-label="果园音效"><i></i></button></div><div class="setting-row volume-row"><label for="setting-volume"><strong>音效音量</strong><span>调到舒服的位置，松手试听</span></label><div class="volume-control"><input id="setting-volume" type="range" min="0" max="100" step="1" value="${Math.round(data.settings.volume * 100)}" aria-label="音效音量" ${data.settings.sound ? "" : "disabled"}><output id="volume-value" for="setting-volume">${Math.round(data.settings.volume * 100)}%</output></div></div><div class="setting-row"><div><strong>灵动效果</strong><span>关闭后减少弹跳、粒子和闪烁</span></div><button role="switch" aria-checked="${data.settings.motion}" id="setting-motion" class="switch ${data.settings.motion ? "on" : ""}" aria-label="灵动效果"><i></i></button></div><div class="storage-note">${icon("leaf")}进度保存在当前浏览器，包括三个模式各自的棋局。清理浏览器数据会移除存档；换设备前可以导出备份。</div><div class="backup-buttons"><button id="export" class="secondary-button">${icon("download")} 导出进度</button><button id="import" class="secondary-button">${icon("upload")} 导入进度</button></div><div class="settings-small">果冻果园 v1.0 · 为一点纯粹的快乐而做</div>`,
+    `<div class="overline">A GROVE THAT FEELS LIKE YOU</div><h2 id="dialog-title">让果园，合你的心意。</h2><div class="setting-row"><div><strong>果园音效</strong><span>清亮的水果音，偶尔收获一点惊喜</span></div><button role="switch" aria-checked="${data.settings.sound}" id="setting-sound" class="switch ${data.settings.sound ? "on" : ""}" aria-label="果园音效"><i></i></button></div><div class="setting-row volume-row"><label for="setting-volume"><strong>音效音量</strong><span>调到舒服的位置，松手试听</span></label><div class="volume-control"><input id="setting-volume" type="range" min="0" max="100" step="1" value="${Math.round(data.settings.volume * 100)}" aria-label="音效音量" ${data.settings.sound ? "" : "disabled"}><output id="volume-value" for="setting-volume">${Math.round(data.settings.volume * 100)}%</output></div></div><div class="setting-row"><div><strong>灵动效果</strong><span>关闭后减少弹跳、粒子和闪烁</span></div><button role="switch" aria-checked="${data.settings.motion}" id="setting-motion" class="switch ${data.settings.motion ? "on" : ""}" aria-label="灵动效果"><i></i></button></div><div class="storage-note">${icon("leaf")}进度保存在当前浏览器，包括三个模式各自的棋局。清理浏览器数据会移除存档；换设备前可以导出备份。</div><div class="backup-buttons"><button id="export" class="secondary-button">${icon("download")} 导出进度</button><button id="import" class="secondary-button">${icon("upload")} 导入进度</button></div>${offlineDownloadNote}<div class="settings-small">果冻果园 v1.0 · 为一点纯粹的快乐而做</div>`,
   );
   const volumeSlider = $("setting-volume") as HTMLInputElement;
   volumeSlider.addEventListener("input", () => {
@@ -826,23 +837,9 @@ function showSettings() {
   for (const key of ["sound", "motion"] as const)
     bind(`setting-${key}`, () => {
       data.settings[key] = !data.settings[key];
-      setSound(data.settings.sound);
-      volumeSlider.disabled = !data.settings.sound;
+      applySettings();
       if (key === "sound" && data.settings.sound) sound("tap");
-      document.documentElement.classList.toggle(
-        "reduce-motion",
-        !data.settings.motion,
-      );
-      const b = $(`setting-${key}`);
-      b.classList.toggle("on", data.settings[key]);
-      b.setAttribute("aria-checked", String(data.settings[key]));
       save();
-      const soundBtn = document.querySelector('[data-action="sound"]')!;
-      soundBtn.innerHTML = icon(data.settings.sound ? "sound" : "mute");
-      soundBtn.setAttribute(
-        "aria-label",
-        data.settings.sound ? "关闭音效" : "开启音效",
-      );
     });
   bind("export", () => {
     save();
@@ -863,10 +860,9 @@ async function importProgress(e: Event) {
   const input = e.target as HTMLInputElement,
     file = input.files?.[0];
   if (!file) return;
+  input.value = "";
   try {
-    if (file.size > 2_000_000)
-      throw new Error("存档文件太大，请选择果冻果园导出的 JSON 文件。");
-    const imported = parseSave(await file.text());
+    const imported = parseSave(await readSaveFile(file, 2_000_000));
     openModal(
       "import",
       `<div class="modal-illustration">${fruitSVG(3)}</div><h2 id="dialog-title">带回这座小果园？</h2><p>这份存档包含 ${imported.stars.filter((v) => v > 0).length} 个已通关关卡、${imported.stars.reduce((a, b) => a + b, 0)} 颗星。<br>导入会替换本机当前进度。</p><button id="confirm-import" class="primary-button">确认导入</button><button id="cancel-import" class="secondary-button">保留当前果园</button>`,
@@ -888,9 +884,14 @@ async function importProgress(e: Event) {
     });
     bind("cancel-import", showSettings);
   } catch (error) {
-    toast(error instanceof Error ? error.message : "未能读取这份存档。");
+    openModal(
+      "import-error",
+      `<h2 id="dialog-title">无法导入这份进度</h2><p id="import-error-detail"></p><p>当前进度已保留。请在原模式重新导出进度后再试。</p><button id="import-error-settings" class="primary-button">返回设置</button>`,
+    );
+    if (modalKind !== "import-error") return;
+    $("import-error-detail").textContent = error instanceof Error ? error.message : "未能读取这份存档。";
+    bind("import-error-settings", showSettings);
   }
-  input.value = "";
 }
 function showLevels() {
   openModal(
@@ -1113,6 +1114,10 @@ window.addEventListener("pagehide", () => {
   if (trialMode) return;
   stopAudio();
   save();
+});
+if (!trialMode) watchSaveSettings((settings) => {
+  data.settings = settings;
+  applySettings();
 });
 window.addEventListener("resize", () => {
   if (trialMode) return;

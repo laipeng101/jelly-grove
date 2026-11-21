@@ -6,9 +6,18 @@ import { createSession } from "../../src/journey/session";
 import { emptyJourneySave, KEY } from "../../src/journey/storage";
 import { candidate, certify } from "../../src/journey/generator";
 import { solve } from "../../src/journey/solver";
-import type { Puzzle, Move, ThemeId } from "../../src/journey/types";
-async function load(page: Page, theme: ThemeId, puzzle = (backups as Puzzle[]).find(p => p.themeId === theme)!, motion = false, url = "/?play=lab") {
-  const save = emptyJourneySave(); save.session = createSession(puzzle);
+import type { JourneySave, Puzzle, Move, ThemeId } from "../../src/journey/types";
+async function load(
+  page: Page,
+  theme: ThemeId,
+  puzzle = (backups as Puzzle[]).find(p => p.themeId === theme)!,
+  motion = false,
+  url = "/?play=lab",
+  best: JourneySave['best'] = {},
+) {
+  const save = emptyJourneySave();
+  save.session = createSession(puzzle);
+  save.best = best;
   await page.addInitScript(({ save, key, motion }) => {
     if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(save));
     localStorage.setItem("jelly-grove.save.v1", JSON.stringify({ version: 1, mode: "journey", stars: Array(24).fill(0), best: 0, freeBest: 0, totalPairs: 0, sessions: {}, settings: { sound: false, motion, volume: .8 } }));
@@ -57,13 +66,18 @@ test('hidden third star loss is marked without hints and undo restores opportuni
   await expect(page.locator('[data-star="3"]')).toHaveAttribute('data-status', 'pending');
 });
 for (const kind of ['challenge', 'ordinary'] as const) test(`completion ${kind}: reasons, stay, refresh and undo replay`, async ({ page }) => {
-  const puzzle = await load(page, 13);
+  const puzzle = await load(page, 13, undefined, false, '/?play=lab', { 13: 3 });
+  const starSummary = page.locator('.trial-star');
+  await expect(starSummary).toHaveText(/最佳/, { useInnerText: true });
+  await expect(starSummary.locator('.icon.lit')).toHaveCount(3);
   for (const move of puzzle.proof[kind]) await play(page, move);
   await expect(page.locator('#trial-result-stay')).toBeVisible();
   await expect(page.locator('.trial-dialog .trial-star-row')).toHaveCount(3);
   await expect(page.locator('.trial-dialog [data-star="3"]')).toHaveAttribute('data-status', kind === 'challenge' ? 'achieved' : 'failed');
   await page.locator('#trial-result-stay').click();
   await expect(page.locator('[data-trial="result"]')).toBeVisible();
+  await expect(starSummary).toHaveText(/本盘/, { useInnerText: true });
+  await expect(starSummary.locator('.icon.lit')).toHaveCount(kind === 'challenge' ? 3 : 2);
   await page.reload();
   await page.getByRole('button', { name: '继续这一局', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -78,14 +92,62 @@ test('next theme only starts after explicit confirmation', async ({ page }) => {
   await page.locator('#trial-result-next').click();
   await expect.poll(async () => (await state(page)).puzzle.themeId).toBe(14);
 });
-test('final theme offers theme selection instead of unsupported level 19', async ({ page }) => {
+test('final theme alone shows its harvest and offers theme selection', async ({ page }) => {
   const puzzle = await load(page, 18);
   for (const move of puzzle.proof.challenge) await play(page, move);
-  await expect(page.getByRole('dialog')).toContainText('六主题体验完成');
+  await expect(page.getByRole('heading', { name: '莓好相遇，送达完成！' })).toBeVisible();
   await expect(page.locator('#trial-result-next')).toHaveText(/选择主题/);
   await page.locator('#trial-result-next').click();
   await expect(page.locator('[data-pick-theme]')).toHaveCount(6);
   expect((await state(page)).puzzle.themeId).toBe(18);
+});
+test('six-theme completion follows the last missing theme in any order', async ({ page }) => {
+  const puzzle = await load(page, 13, undefined, false, '/?play=lab', { 14: 1, 15: 2, 16: 2, 17: 1, 18: 3 });
+  for (const move of puzzle.proof.ordinary) await play(page, move);
+  await expect(page.getByRole('heading', { name: '六主题体验完成' })).toBeVisible();
+});
+
+test('second hint identifies the replay position after a move has been made', async ({ page }) => {
+  const puzzle = candidate(13, 988634891);
+  expect(certify(puzzle, solve(puzzle))).toBe(true);
+  await load(page, 13, puzzle);
+  await play(page, puzzle.proof.critical[0].bad);
+  await page.getByRole('button', { name: '解题提示', exact: true }).click();
+  await page.getByRole('button', { name: '使用提示 · 展开主题思路' }).click();
+  await page.getByRole('button', { name: '展开本盘关键关系' }).click();
+  await expect(page.getByRole('dialog')).toContainText('以下坐标用于复盘');
+  const relation = page.locator('.trial-hint-choices').first();
+  await expect(relation).toContainText('初盘');
+  expect((await state(page)).state.moves).toBe(1);
+});
+
+test.describe('desktop preview navigation', () => {
+  test.use({ viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false });
+
+  test('returning from keyboard preview restores the focused fruit and selection', async ({ page }) => {
+    await load(page, 13);
+    const selected = page.locator('[data-trial-cell="0,0"]');
+    const origin = page.locator('[data-trial-cell="0,1"]');
+    await selected.focus();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowRight');
+    await expect(origin).toBeFocused();
+
+    for (const exit of ['p', 'Enter', 'Space']) {
+      await page.keyboard.press('p');
+      await expect(page.getByRole('group', { name: '下一拍位置预览' })).toBeVisible();
+      await expect(page.getByRole('button', { name: '返回棋盘' })).toBeFocused();
+      await page.keyboard.press(exit);
+      await expect(page.getByRole('group', { name: '水果棋盘' })).toBeVisible();
+      await expect(origin).toBeFocused();
+      await expect(selected).toHaveAttribute('aria-pressed', 'true');
+    }
+
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('[data-trial-cell="0,2"]')).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(page.getByRole('dialog', { name: '果园等你，不着急' })).toBeVisible();
+  });
 });
 test('normal motion slides surviving track fruit and idle cues preserve board state', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
@@ -125,6 +187,41 @@ test('mobile lost challenge keeps all conditions and undo reachable with full bo
   for (const text of await page.locator('.trial-star-condition,.trial-star-reason:visible').all()) await expect(text).toBeInViewport();
   await page.screenshot({ path: info.outputPath('challenge-lost-mobile.png') });
 });
+test('theme 17 dead end fits the full mobile board and can be undone', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  const puzzle = candidate(17, 681686203);
+  expect(certify(puzzle, solve(puzzle))).toBe(true);
+  await load(page, 17, puzzle);
+  // Reproduce the exact ten moves recorded in the simulated acceptance run.
+  const deadEnd = [
+    [1, 4, 2, 2], [2, 1, 3, 2], [4, 2, 5, 3], [3, 6, 4, 6], [3, 4, 1, 6],
+    [4, 3, 3, 3], [4, 3, 4, 6], [5, 1, 3, 4], [2, 5, 5, 4], [1, 1, 5, 5],
+  ];
+  for (const [ar, ac, br, bc] of deadEnd) {
+    await play(page, { a: { r: ar - 1, c: ac - 1 }, b: { r: br - 1, c: bc - 1 } });
+  }
+  expect((await state(page)).state.phase).toBe('lost');
+  const feedback = page.locator('.trial-feedback');
+  await expect(feedback).toContainText('符合订单配额的配对');
+  await expect(feedback).not.toContainText(/。，|撤销.*撤销/);
+  const undo = page.getByRole('button', { name: '↶ 撤销', exact: true });
+  await expect(undo).toBeInViewport({ ratio: 1 });
+  await expect.poll(() => page.locator('.trial-board-viewport').evaluate(viewport => {
+    const visible = viewport.getBoundingClientRect();
+    return [...viewport.querySelectorAll('[data-trial-cell]')].every(cell => {
+      const bounds = cell.getBoundingClientRect();
+      return bounds.width >= 43.9 && bounds.height >= 43.9 &&
+        bounds.top >= Math.max(0, visible.top) - 1 &&
+        bounds.bottom <= Math.min(innerHeight, visible.bottom) + 1;
+    });
+  })).toBe(true);
+
+  await undo.tap();
+  await undo.tap();
+  await play(page, { a: { r: 2, c: 3 }, b: { r: 0, c: 1 } });
+  await expect(page.getByRole('heading', { name: '莓好相遇，送达完成！' })).toBeVisible();
+  await expect(page.locator('.trial-feedback')).toContainText('★★☆');
+});
 test('offline automatic loss check, undo, final harvest and reload need no network', async ({ page, context }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -139,7 +236,7 @@ test('offline automatic loss check, undo, final harvest and reload need no netwo
   await page.getByRole('button', { name: '撤销一步', exact: true }).click();
   await page.getByRole('button', { name: '↶ 撤销', exact: true }).click();
   for (const move of puzzle.proof.challenge) await play(page, move);
-  await expect(page.getByRole('dialog')).toContainText('六主题体验完成');
+  await expect(page.getByRole('heading', { name: '莓好相遇，送达完成！' })).toBeVisible();
   await page.locator('#trial-result-stay').click();
   await page.reload();
   await page.getByRole('button', { name: '继续这一局', exact: true }).click();
