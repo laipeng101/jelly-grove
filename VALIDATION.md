@@ -1,27 +1,19 @@
 # 开发验证
 
-首次执行浏览器回归或 Playwright 锁定版本变更后，运行 `npm run browser:install`。只运行无头回归时可追加 `-- --only-shell`，减少首次下载。npm 和 Playwright 分别使用仓库内的 `.cache/npm` 和 `.cache/playwright`，云端主目录只读时也能安装。
+首次执行浏览器回归或升级 Playwright 后，运行 `npm run browser:install`。仅运行无头回归可追加 `-- --only-shell`。npm 与 Playwright 缓存都在仓库的 `.cache/` 下。
 
 | 场景 | 入口 |
 | --- | --- |
-| 规则、生成、计时与存档 | `npm test`，包括第 18 主题的独立可解性和历史种子回归 |
-| 布局、交互、离线与构建 | `npm run test:browser`，先重新构建，再启动独立生产预览。可追加 `-- --grep '<用例名称>'` 定向验证 |
-| 完整开发回归 | `npm run verify` |
+| 逻辑回归 | `npm test` |
+| 浏览器回归 | `npm run test:browser`，重建后测试。可追加 `-- --grep '<用例名称>'` |
+| 完整回归与构建 | `npm run verify` |
 | 生成质量或预算变化 | `npm run journey:benchmark` 与 `npm run journey:benchmark:browser`，分别覆盖 Node.js 求解与断网单文件中的 Chromium Worker |
-| 确需替换备用盘 | `npm run journey:backups` 重建受版本控制的备用库，随后检查关卡内容差异并执行完整回归和生成基准 |
+| 确需替换备用盘 | `npm run journey:backups`。核对盘面差异后跑完整回归和生成基准 |
 
-Playwright 每次启动独立回环端口。报告和失败 trace 位于 `output/playwright/`。浏览器基准自己构建并打开本地 HTML，报告的 SHA-256 对应该文件。两个生成基准默认每主题 100 次，可用 `JOURNEY_BENCH_COUNT` 缩小排查样本。基准结果写入 `output/journey/`。
+本地验证产物写入 `output/`。Playwright 报告与失败 trace 见 `output/playwright/`，基准见 `output/journey/`。排查时可用 `JOURNEY_BENCH_COUNT` 缩小样本量，正式验收见[生成预算](LEVEL-DESIGN.md#生成预算)。浏览器基准用报告中的 SHA-256 标识被测离线包。
 
-紧凑布局按照[可见性契约](DESIGN.md#手机对局信息可见性契约)验证实际可视区域、无遮挡命中、触控尺寸和放大文字重排。试玩验证另外覆盖各主题的普通胜利与挑战、存档与撤销、过期 Worker 结果、导航、动效以及 `file://` 冷启动。生成准入和有解性依据[关卡设计](LEVEL-DESIGN.md)。
+- 布局改动按[可见性契约](DESIGN.md#手机对局信息可见性契约)或[试玩布局约束](LEVEL-DESIGN.md#布局与动效)验证。真机性能、系统文字放大、双指缩放、Android 微信本地文件入口（`content://`）、实际听感和真人难度使用对应设备或环境验证。
+- 改生成或认证时，验证独立模型和真实 Worker 预算。复现随机盘时附主题与种子，标明生成请求种子或已接受盘面种子。
+- 改资源引用、Worker 或打包时，验证断网 `file://` 冷启动。已加载页面断网和 HTTP 断网重载各自判断。
 
-按改动影响重验。规则、生成、存档或离线交付改动需要覆盖失败路径与模块协作。记录被测版本、环境和结论；复现随机盘时附主题与种子，注明使用生成请求种子还是已接受盘面种子。独立盲玩若被明确要求，使用隔离的浏览器与上下文，只从可见界面解题，先验证采集方法再扩展。预算耗尽保留未完成结果。
-
-桌面 Chromium 移动视口与根字号放大覆盖网页布局。物理手机性能、系统文字放大、Android 微信本地文件入口（`content://`）、外放听感和真人难度仍待对应环境验证。已加载页面断网、断网 `file://` 冷启动和 HTTP 断网重新获取页面是三个独立场景。
-
-## 历史审核
-
-- `c0c738f` 对应旧冻结版本的 `PASS_WITH_RESIDUAL_RISK`。audit8、audit9 完整，audit10 与三次定向补充仍为 `INCOMPLETE`。
-- `bff9bb2` 记录第 18 主题初盘调查。七个历史盘面、32 个备用盘、1000 次 Node.js 生成和 100 次离线 Worker 生成均通过独立可解性抽样。三次补充中，两个停止局面已进入可撤销的死局，一个仍可通关但已失去最优挑战。初盘生成疑点由此关闭，原盲玩状态保留。
-- `ef94d6a` 记录收获与动效改版。末轮独立功能复验当时待完成。
-
-完整历史记录和对应工具可在这些提交中查阅。原始本地附件由各次审核保存，普通克隆提供受版本控制的摘要与回归用例。
+规则、生成、存档或离线交付改动须覆盖受影响的失败路径与模块协作。交付说明记录被测版本、环境、结论和影响验收的未验证项。
