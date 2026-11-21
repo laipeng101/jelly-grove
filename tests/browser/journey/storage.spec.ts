@@ -24,12 +24,12 @@ test("invalid import never changes current game; export can round-trip", async (
   await page.locator("#trial-import").setInputFiles({
     name: "broken.json",
     mimeType: "application/json",
-    buffer: Buffer.from('{"version":2}'),
+    buffer: Buffer.from('{"version":'),
   });
-  await expect(page.getByRole("dialog")).toContainText("无法导入");
+  const error = page.getByRole("dialog", { name: "无法导入这份进度" });
+  await expect(error).toContainText("存档不是完整的 JSON 文件");
   expect(await state(page)).toEqual(before);
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "音效与设置" }).click();
+  await error.getByRole("button", { name: "返回设置" }).click();
   await page.locator("#trial-import").setInputFiles(path!);
   await page.getByRole("button", { name: "确认导入", exact: true }).click();
   expect(await state(page)).toEqual(before);

@@ -10,13 +10,14 @@
 | 共用配对规则、音效、模式切换 | 检查两种玩法受影响的行为。共用逻辑用例在 `tests/logic/shared/` |
 | 界面与操作 | 在 `tests/browser/` 选对应模式的用例。布局约束见[经典模式](DESIGN.md#手机对局信息可见性契约)和[流转送达](LEVEL-DESIGN.md#布局与动效) |
 | 存档格式与迁移 | 检查旧档读入、导入导出和失败后保留原进度 |
-| 资源、Worker、打包 | 用断网的 Chromium 直接打开本地 HTML。已打开后断网和 HTTP 断网重载单独验证 |
+| 页面往返与共用设置 | 用 `tests/browser/navigation.spec.ts` 验证实际回退、前进时的 `pageshow.persisted`、设置同步与进度保留 |
+| 发布、资源、Worker、打包 | 验证部署在子路径时的离线包下载。用断网的 Chromium 打开下载文件并开盘。已打开后断网和 HTTP 断网重载单独验证 |
 
 只跑受影响的逻辑文件，例如 `node --import tsx --test tests/logic/journey/rules.test.ts`。浏览器测试可用路径和标题筛选，例如 `npm run test:browser -- tests/browser/journey/storage.spec.ts --grep 'invalid import'`。一次传入要测的文件，Playwright 会先构建，再启动预览。已有结果可以沿用，直到相关代码、输入或验收条件发生变化。
 
 ## 回归与专项命令
 
-首次执行浏览器回归或升级 Playwright 后，运行 `npm run browser:install`。仅运行无头回归可追加 `-- --only-shell`。
+首次执行浏览器回归或 Playwright 锁定版本变更后，运行 `npm run browser:install`。浏览器往返缓存需要完整 Chromium。只选其他无头用例时可追加 `-- --only-shell`。npm 和 Playwright 的缓存均位于仓库的 `.cache/` 下。
 
 | 场景 | 入口 |
 | --- | --- |
@@ -31,3 +32,4 @@ Playwright 报告、失败截图和 trace 见 `output/playwright/`。浏览器�
 
 - 复现随机盘时记录主题和种子，注明是生成请求还是已采用棋盘的种子。
 - 涉及真机性能、系统文字放大、双指缩放、Android 微信本地入口（`content://`）或实际听感时，用对应设备验证。
+- 衡量真人难度时，用独立盲玩验证。

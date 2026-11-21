@@ -41,6 +41,24 @@ export type Save = {
   sessions: Partial<Record<Mode, Game>>;
 };
 const KEY = "jelly-grove.save.v1";
+
+export function parseSaveJSON(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error("存档不是完整的 JSON 文件。");
+  }
+}
+
+export async function readSaveFile(file: File, maxBytes: number): Promise<string> {
+  if (file.size > maxBytes) throw new Error("存档文件太大，无法读取。");
+  try {
+    return await file.text();
+  } catch {
+    throw new Error("无法读取所选文件。");
+  }
+}
+
 export function emptySave(): Save {
   return {
     version: 1,
@@ -214,8 +232,21 @@ function validGame(g: Game, mode: Mode): boolean {
     return false;
   return true;
 }
+function parseSettings(settings: unknown): Save["settings"] {
+  if (
+    !record(settings) ||
+    typeof settings.sound !== "boolean" ||
+    typeof settings.motion !== "boolean"
+  )
+    throw new Error("这份存档缺少有效的音画设置。");
+  // Existing v1 exports predate the volume slider.
+  const volume = settings.volume === undefined ? 0.8 : settings.volume;
+  if (!numeric(volume, 0, 1)) throw new Error("音效音量设置无效。");
+  return { ...settings, sound: settings.sound, motion: settings.motion, volume };
+}
+
 export function parseSave(raw: string): Save {
-  const s = JSON.parse(raw) as Save;
+  const s = parseSaveJSON(raw) as Save;
   if (
     !record(s) ||
     s.version !== 1 ||
@@ -226,18 +257,13 @@ export function parseSave(raw: string): Save {
     !integer(s.best) ||
     !integer(s.freeBest) ||
     !integer(s.totalPairs) ||
-    !record(s.settings) ||
-    typeof s.settings.sound !== "boolean" ||
-    typeof s.settings.motion !== "boolean" ||
     !record(s.sessions) ||
     !Object.keys(s.sessions).every((k) =>
       ["journey", "free", "sprint"].includes(k),
     )
   )
     throw new Error("这份存档不属于果冻果园，或内容已经损坏。");
-  // Existing v1 exports predate the volume slider.
-  if (s.settings.volume === undefined) s.settings.volume = 0.8;
-  if (!numeric(s.settings.volume, 0, 1)) throw new Error("音效音量设置无效。");
+  s.settings = parseSettings(s.settings);
   for (const mode of ["journey", "free", "sprint"] as Mode[])
     if (Object.hasOwn(s.sessions, mode) && !validGame(s.sessions[mode]!, mode))
       throw new Error("棋局数据不完整，无法恢复这份存档。");
@@ -267,4 +293,25 @@ export function writeSettings(patch: Partial<Save["settings"]>): boolean {
   const { save, warning } = loadSave();
   if (warning) return false;
   return writeSave({ ...save, settings: { ...save.settings, ...patch } });
+}
+
+export function watchSaveSettings(apply: (settings: Save["settings"]) => void) {
+  const refresh = () => {
+    let settings: Save["settings"];
+    try {
+      const raw = localStorage.getItem(KEY);
+      const stored = raw && parseSaveJSON(raw);
+      if (!record(stored) || stored.version !== 1) return;
+      settings = parseSettings(stored.settings);
+    } catch {
+      return;
+    }
+    apply(settings);
+  };
+  window.addEventListener("storage", (event) => {
+    if (event.key === KEY) refresh();
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) refresh();
+  });
 }

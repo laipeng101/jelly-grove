@@ -715,10 +715,13 @@
 .trial-star-reason { display: none; font-size: .75rem; line-height: 1.4; color: var(--deep); }
 .trial-star-row[data-status="failed"] .trial-star-reason,
 .trial-result-reasons .trial-star-reason { display: block; }
+.trial-star-row .trial-star-reason[hidden] { display: none; }
 .trial-star-row[data-status="failed"] .trial-star-condition { color: #966044; }
 .trial-star-row[data-status="failed"] .trial-star-reason { color: #8c5745; }
 .trial-star,
 .trial-star-summary { display:inline-flex; align-items:center; gap:3px; flex-shrink:0; }
+.trial-star { font-size:.75rem; letter-spacing:normal; }
+.trial-star-icons { display:inline-flex; }
 .trial-star .icon,
 .trial-star-summary .icon,
 .trial-condition-icon .icon { width:20px; height:20px; color:#c4cbb1; fill:#e8ecd9; stroke-width:1; }
@@ -766,4 +769,11 @@
   .trial-tools button,.trial-secondary button { font-size:.75rem; padding:0 2px; line-height:1.2; }
   .trial-large-text .trial-actions { grid-template-columns:1fr; }
   .trial-challenge-undo { margin-left:0; }
+}
+@media (max-width: 870px) and (min-height: 621px) {
+  .trial-card { overflow-y: auto; }
+  .trial-page:not(.trial-large-text) .trial-board-viewport {
+    /* Leave room for 44px cells, grid gaps and the outside connection path. */
+    min-height: calc(var(--rows) * 44px + (var(--rows) - 1) * 4px + 32px);
+  }
 }

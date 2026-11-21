@@ -161,6 +161,35 @@ test("360x640 touch layout, keyboard and dialog focus", async ({
   await checkTrialLayout(page);
 });
 
+test.describe('desktop preview navigation', () => {
+  test.use({ viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false });
+
+  test('returning from keyboard preview restores the focused fruit and selection', async ({ page }) => {
+    await load(page);
+    const selected = page.locator('[data-trial-cell="0,0"]');
+    const origin = page.locator('[data-trial-cell="0,1"]');
+    await selected.focus();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowRight');
+    await expect(origin).toBeFocused();
+
+    for (const exit of ['p', 'Enter', 'Space']) {
+      await page.keyboard.press('p');
+      await expect(page.getByRole('group', { name: '下一拍位置预览' })).toBeVisible();
+      await expect(page.getByRole('button', { name: '返回棋盘' })).toBeFocused();
+      await page.keyboard.press(exit);
+      await expect(page.getByRole('group', { name: '水果棋盘' })).toBeVisible();
+      await expect(origin).toBeFocused();
+      await expect(selected).toHaveAttribute('aria-pressed', 'true');
+    }
+
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('[data-trial-cell="0,2"]')).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(page.getByRole('dialog', { name: '已暂停' })).toBeVisible();
+  });
+});
+
 for (const [width, height, fullBoard] of [
   [360, 640, true],
   [390, 700, true],

@@ -1,3 +1,4 @@
+import { parseSaveJSON } from "../storage";
 import { createSession, earnedStars, playMove } from "./session";
 import { challengeMet } from "./rules";
 import type { JourneySave, JourneySession, Move, ThemeId } from "./types";
@@ -56,7 +57,7 @@ function normalizeHints(
 export function parseJourneySave(text: string): JourneySave {
   if (text.length > MAX_JOURNEY_SAVE_CHARACTERS)
     throw new Error("新关卡存档过大，无法读取。");
-  const raw = JSON.parse(text) as JourneySave;
+  const raw = parseSaveJSON(text) as JourneySave;
   if (
     !record(raw) ||
     raw.version !== 1 ||

@@ -1554,6 +1554,15 @@ footer .icon {
   display: flex;
   gap: 10px;
 }
+.settings-offline {
+  margin: 12px 0;
+  font-size: .875rem;
+}
+.settings-offline a {
+  color: var(--deep);
+  text-decoration: underline;
+  text-underline-offset: .15em;
+}
 .backup-buttons .secondary-button {
   font-size: 11px;
 }

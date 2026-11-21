@@ -13,14 +13,16 @@ type LoadOptions = {
   initial?: Puzzle;
   motion?: boolean;
   url?: string;
+  best?: JourneySave["best"];
 };
 
 export async function load(
   page: Page,
-  { theme = 13, initial = puzzle(theme), motion, url = "/?play=lab" }: LoadOptions = {},
+  { theme = 13, initial = puzzle(theme), motion, url = "/?play=lab", best = {} }: LoadOptions = {},
 ) {
   const save = emptyJourneySave();
   save.session = createSession(initial);
+  save.best = best;
   const value = JSON.stringify(save);
   parseJourneySave(value);
   const preferences: Save | undefined = motion === undefined ? undefined : {

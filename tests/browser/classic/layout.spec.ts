@@ -1,6 +1,5 @@
 import { test, expect } from "@playwright/test";
 import { pathToFileURL } from "node:url";
-import { resolve } from "node:path";
 import { findPairs, remaining } from "../../../src/engine";
 import { commitMatch } from "../../../src/game";
 import { fixture, loadGame, checkLayout, settle } from "./fixtures";
@@ -33,7 +32,7 @@ for (const level of [1, 2, 3, 7, 13, 19]) {
   });
 }
 
-test("live combo, near expiry, fever and final seconds stay readable", async ({
+test("live combo, expiry, fever and final seconds stay readable", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 360, height: 640 });
@@ -48,8 +47,14 @@ test("live combo, near expiry, fever and final seconds stay readable", async ({
   await expect(page.locator("#mini-juice-label")).toContainText("×2");
   await expect(page.locator("#primary-stat")).toHaveClass(/time-warning/);
   await checkLayout(page, true);
-  await page.clock.runFor(600);
+  const { a, b } = findPairs(game.board, 1)[0];
+  for (const { r, c } of [a, b])
+    await page.locator(`[data-cell="${r},${c}"]`).click();
+  await settle(page);
+  await expect(page.locator("#combo-label")).toContainText("13 连消");
+  await page.clock.runFor(6000);
   await expect(page.locator("#combo-label")).toHaveText("当前连消 0");
+  await expect(page.locator("#play-caption")).toHaveText(/^本次 \+\d+ 分$/);
   await checkLayout(page, true);
 });
 
@@ -151,11 +156,12 @@ test("compact menu retains modes, details, settings and focus", async ({
   await checkLayout(page, true);
 });
 
-test("import errors stay visible above a modal without covering gameplay", async ({
+test("malformed import explains recovery in Chinese and keeps the classic board", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 360, height: 640 });
   await loadGame(page, fixture("journey", 24).save);
+  const before = await page.locator("#board").innerHTML();
   await page.getByRole("button", { name: "本局详情与设置" }).click();
   await page.getByRole("button", { name: "音效与设置", exact: true }).click();
   await page
@@ -163,16 +169,15 @@ test("import errors stay visible above a modal without covering gameplay", async
     .setInputFiles({
       name: "invalid.json",
       mimeType: "application/json",
-      buffer: Buffer.from("{}"),
+      buffer: Buffer.from('{"version":'),
     });
-  await expect(page.locator("#toast")).toBeVisible();
-  await expect(page.locator("#toast")).toContainText("存档");
+  const error = page.getByRole("dialog", { name: "无法导入这份进度" });
+  await expect(error).toContainText("存档不是完整的 JSON 文件");
+  await expect(error).toContainText("当前进度已保留。请在原模式重新导出进度后再试。");
+  await error.getByRole("button", { name: "返回设置" }).click();
+  await expect(page.getByRole("button", { name: "导入进度" })).toBeVisible();
   await page.getByRole("button", { name: "关闭", exact: true }).click();
-  await expect(page.locator("#toast")).toBeHidden();
-  await expect(page.locator("#play-toast")).toBeVisible();
-  await checkLayout(page, true);
-  await page.clock.runFor(3000);
-  await expect(page.locator("#play-toast")).toBeHidden();
+  expect(await page.locator("#board").innerHTML()).toBe(before);
   await checkLayout(page, true);
 });
 
@@ -234,20 +239,29 @@ test("outer connection remains aligned and stays in its board gutter", async ({
   await checkLayout(page, true);
 });
 
-test("final standalone HTML works offline with the same compact layout", async ({
+test("downloaded standalone HTML works offline with the same compact layout", async ({
   page,
   context,
-}) => {
+}, info) => {
+  await page.setViewportSize({ width: 480, height: 958 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "本局详情与设置" }).click();
+  await page.getByRole("button", { name: "音效与设置", exact: true }).click();
+  const downloadEvent = page.waitForEvent("download");
+  await page.getByRole("link", { name: "下载离线版" }).click();
+  const download = await downloadEvent;
+  expect(download.suggestedFilename()).toBe("果冻果园.html");
+  const localFile = info.outputPath(download.suggestedFilename());
+  await download.saveAs(localFile);
   const requests: string[] = [];
   page.on("request", (request) => {
     if (/^https?:/.test(request.url())) requests.push(request.url());
   });
-  await page.setViewportSize({ width: 480, height: 958 });
   await context.setOffline(true);
   await loadGame(
     page,
     fixture("sprint", 17, 2, 10).save,
-    pathToFileURL(resolve("dist/果冻果园.html")).href,
+    pathToFileURL(localFile).href,
   );
   await checkLayout(page, true);
   await page.getByRole("button", { name: "提示", exact: true }).click();
