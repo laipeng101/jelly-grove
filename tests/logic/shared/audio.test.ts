@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { score } from "../src/audio.ts";
+import { score } from "../../../src/audio.ts";
 
 test("high combos vary in a bounded register without increasing the body gain", () => {
   const cues = Array.from({ length: 32 }, (_, i) =>

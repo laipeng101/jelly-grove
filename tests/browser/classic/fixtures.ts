@@ -1,4 +1,5 @@
-import { expect, type Page, type TestInfo } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+import { classicLevel } from "../../../src/classic-levels";
 import {
   LEVELS,
   generateBoard,
@@ -6,18 +7,15 @@ import {
   seedRandom,
   findPairs,
   type Level,
-} from "../../src/engine";
-import { commitMatch } from "../../src/game";
-import { parseSave, type Game, type Mode, type Save } from "../../src/storage";
+} from "../../../src/engine";
+import { commitMatch } from "../../../src/game";
+import { parseSave, type Game, type Mode, type Save } from "../../../src/storage";
 
 export function fixture(mode: Mode, level = 17, difficulty = 2, matches = 0) {
   const config: Level =
     mode === "journey"
       ? LEVELS[level - 1]
-      : {
-          ...LEVELS[difficulty === 0 ? 2 : difficulty === 1 ? 7 : 16],
-          gravity: mode === "free" && difficulty === 2,
-        };
+      : classicLevel(mode, difficulty, level);
   const board = generateBoard(config, seedRandom(42));
   const game: Game = {
     mode,
@@ -99,11 +97,7 @@ export async function settle(page: Page) {
 
 // Visibility assertions must check the viewport AND the painted element on top.
 // Playwright's toBeVisible alone accepts an offscreen/covered element.
-export async function checkLayout(
-  page: Page,
-  fullBoard: boolean,
-  info?: TestInfo,
-) {
+export async function checkLayout(page: Page, fullBoard: boolean) {
   await settle(page);
   const report = await page.evaluate(
     ({ fullBoard }) => {
@@ -241,16 +235,5 @@ export async function checkLayout(
     },
     { fullBoard },
   );
-  if (info) {
-    await info.attach("layout-geometry", {
-      body: JSON.stringify(report, null, 2),
-      contentType: "application/json",
-    });
-    await info.attach("viewport", {
-      body: await page.screenshot(),
-      contentType: "image/png",
-    });
-  }
   expect(report.errors, JSON.stringify(report, null, 2)).toEqual([]);
-  return report;
 }

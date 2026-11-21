@@ -28,8 +28,7 @@
   min-width: 44px;
 }
 .trial-header button,
-.trial-title button,
-.trial-bottom button {
+.trial-title button {
   border-radius: 12px;
   padding: 8px;
 }
@@ -274,8 +273,8 @@
   display: flex;
   justify-content: center;
   gap: 12px;
-  font-size: 0.6875rem;
-  color: #7b8677;
+  font-size: 0.75rem;
+  color: var(--deep);
 }
 .trial-feedback {
   font-size: 0.8125rem;
@@ -318,25 +317,16 @@
   cursor: default;
 }
 .trial-bottom {
-  color: #8b9585;
-  font-size: 0.625rem;
+  color: var(--deep);
+  font-size: 0.75rem;
   gap: 2px;
   min-height: 18px;
-}
-.trial-bottom button {
-  font-size: 0.6875rem;
 }
 .trial-seed {
   max-width: 115px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.trial-desktop-note {
-  text-align: center;
-  font-size: 0.75rem;
-  color: #8b9584;
-  margin-top: 15px;
 }
 .trial-loading {
   padding: 80px 10px;
@@ -417,16 +407,18 @@
   margin-top: 3px;
 }
 .trial-dialog p.trial-fine {
-  font-size: 0.6875rem;
-  color: #85917e;
+  font-size: 0.75rem;
+  color: var(--deep);
   overflow-wrap: anywhere;
 }
-.trial-rules {
+.trial-rules,
+.trial-star-rules {
   padding-left: 22px;
   font-size: 0.875rem;
   line-height: 1.8;
 }
-.trial-rules li {
+.trial-rules li,
+.trial-star-rules li {
   margin-bottom: 10px;
 }
 .trial-hint {
@@ -457,11 +449,24 @@
   border-radius: 12px;
   padding: 8px 14px;
 }
-.trial-setting input {
+.trial-volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 60%;
+}
+.trial-volume input {
   min-height: 44px;
-  max-width: 60%;
+  min-width: 0;
+  width: 100%;
   accent-color: #708b66;
 }
+.trial-volume output {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+#trial-settings-status:empty { display: none; }
 .trial-backups {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -562,7 +567,6 @@
     );
   }
   .trial-legend {
-    font-size: 0.625rem;
     gap: 7px;
     flex-shrink: 0;
   }
@@ -590,12 +594,6 @@
   }
   .trial-bottom {
     margin-top: -2px;
-  }
-  .trial-bottom button {
-    min-height: 44px;
-  }
-  .trial-desktop-note {
-    display: none;
   }
   .trial-cell {
     border-radius: 11px;

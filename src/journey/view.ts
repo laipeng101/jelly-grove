@@ -1,7 +1,7 @@
 import "./view.css";
 import { fruitSVG, FRUITS, icon } from "../art";
 import { initAudio, setSound, setVolume, sound, stopAudio } from "../audio";
-import { loadSave, writeSave } from "../storage";
+import { loadSave, writeSettings } from "../storage";
 import type { Board, Point } from "../engine";
 import { THEMES } from "./themes";
 import { requestPuzzle } from "./client";
@@ -21,7 +21,7 @@ import {
   recordJourneyResult,
   serializeJourneySave,
 } from "./storage";
-import type { JourneySession, Move, ThemeId } from "./types";
+import { RECENT_PUZZLE_LIMIT, type JourneySession, type Move, type ThemeId } from "./types";
 import { ChallengeMonitor, quickChallengeStatus, type ChallengeStatus } from "./challenge-client";
 import { animateConveyor, conveyorSteps } from "./motion";
 
@@ -38,20 +38,49 @@ const coord = (p: Point) => `${p.r + 1}行${p.c + 1}列`;
 const fruitName = (n: number) => FRUITS[n - 1]?.name ?? "水果";
 const starText = (n: number) => "★".repeat(n) + "☆".repeat(3 - n);
 const starIcons = (n: number) => Array.from({ length: 3 }, (_, i) => icon("star", i < n ? "lit" : "")).join("");
+const saveFailure = "存储不可用，请导出";
+const settingsFailure = "未能保存设置。下次打开时可能恢复原设置。";
+
+function challengeText({ puzzle: { challenge }, state }: JourneySession) {
+  switch (challenge.kind) {
+    case "first-window":
+      return challenge.fruits.length > 1
+        ? "每种目标都在首次到达采收口时送达"
+        : "目标首次到达采收口时送达";
+    case "preserve":
+      return `通关时至少保留 ${challenge.pairs} 对${fruitName(challenge.fruit)}`;
+    case "no-outside":
+      return "全程只在采收口配对目标水果";
+    case "fuel":
+      return `普通水果最多消除 ${challenge.limit} 对（已消除 ${state.fuelUsed} 对）`;
+  }
+}
+
+function starRequirements(session: JourneySession) {
+  return ["完成本盘目标", "通关且未使用解题提示", challengeText(session)];
+}
+
+const goalCompletion = {
+  clear: "棋盘已清空",
+  collect: "收集完成",
+  deliver: "送达完成",
+};
 
 /** The trial owns its DOM and events; the classic app never starts on this URL. */
 export function initJourneyView(app: HTMLElement) {
   document.body.classList.add("journey-trial");
   const loaded = loadJourneySave();
   let save = loaded.save;
-  const preferences = loadSave().save;
+  const preferences = loadSave().save.settings;
   let selected: Point | null = null;
   let preview = false;
   let busy = false;
-  let request: AbortController | null = null;
-  let message =
-    loaded.warning ?? "成功配对后，轨道整体前进一格。慢慢想，连消不会过期。";
-  let storageOK = true;
+  let request: { controller: AbortController; themeId: ThemeId } | null = null;
+  let themeToResume: ThemeId | undefined;
+  let importRevision = 0;
+  let message = "配对后，轨道沿箭头移动一格。";
+  let storageOK = !loaded.warning;
+  let settingsOK = true;
   let generation = "";
   let path: Point[] = [];
   let animationBoard: Board | null = null;
@@ -67,7 +96,7 @@ export function initJourneyView(app: HTMLElement) {
   let boardObserver: ResizeObserver | null = null;
   let session = () => save.session!;
   let theme = () => THEMES.find((t) => t.id === session().puzzle.themeId)!;
-  const motionEnabled = () => preferences.settings.motion && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const motionEnabled = () => preferences.motion && !matchMedia("(prefers-reduced-motion: reduce)").matches;
   function refreshChallenge() {
     challengeMonitor.cancel();
     if (!save.session) return;
@@ -113,21 +142,12 @@ export function initJourneyView(app: HTMLElement) {
     };
     idleTimer = window.setTimeout(() => { pulse(); idleInterval = window.setInterval(pulse, 3000); }, 1500);
   }
-  function challengeText() {
-    const challenge = session().puzzle.challenge;
-    if (challenge.kind === "preserve")
-      return `通关时保留${fruitName(challenge.fruit)} ${challenge.pairs} 对`;
-    if (challenge.kind === "fuel")
-      return `普通水果最多消耗 ${challenge.limit} 对（当前 ${session().state.fuelUsed}）`;
-    return theme().challengeText;
-  }
-
   function syncPreferences() {
-    setSound(preferences.settings.sound);
-    setVolume(preferences.settings.volume);
+    setSound(preferences.sound);
+    setVolume(preferences.volume);
     document.documentElement.classList.toggle(
       "reduce-motion",
-      !preferences.settings.motion,
+      !preferences.motion,
     );
   }
   function persist() {
@@ -135,7 +155,7 @@ export function initJourneyView(app: HTMLElement) {
     storageOK = writeJourneySave(save);
     const label = app.querySelector("#trial-save");
     if (label)
-      label.textContent = storageOK ? "已自动保存" : "存储不可用，请导出";
+      label.textContent = storageOK ? "已保存" : saveFailure;
   }
   function render() {
     cancelIdle();
@@ -158,7 +178,7 @@ export function initJourneyView(app: HTMLElement) {
     const s = save.session;
     syncPreferences();
     const current = s && THEMES.find((t) => t.id === s.puzzle.themeId)!;
-    app.innerHTML = `<main class="trial-page ${s && s.state.board.length >= 5 ? "trial-dense" : ""}"><header class="trial-header"><a href="?" class="trial-home" aria-label="返回原模式">‹ 果冻果园</a><span>新关卡试玩</span><button data-trial="settings" aria-label="音效与设置">设置</button></header><section class="trial-card" aria-label="流转送达试玩"><div class="trial-title"><button data-trial="themes" class="trial-theme-button">${s ? `${s.puzzle.themeId} · ${esc(current!.name)} ▾` : "选择新关卡 ▾"}</button><div class="trial-title-tools"><button class="trial-dense-settings" data-trial="settings" aria-label="音效与设置">设置</button><button data-trial="pause" ${!s ? "disabled" : ""}>暂停</button></div></div>${s ? body(s) : `<div class="trial-loading" role="status">正在准备一盘新鲜水果…</div>`}<div class="trial-bottom"><span id="trial-save">${storageOK ? "已自动保存" : "存储不可用，请导出"}</span><span>两弯 · 免费撤销</span>${s ? `<span class="trial-seed" title="${esc(s.puzzle.id)}">种子 ${s.puzzle.seed}</span>` : ""}</div></section><p class="trial-desktop-note">流转送达 · 第三章的六种随机主题。每一步之后，重新看看同伴会在哪里。</p></main><div id="trial-dialog-root"></div><input id="trial-import" type="file" accept=".json,application/json" hidden>`;
+    app.innerHTML = `<main class="trial-page ${s && s.state.board.length >= 5 ? "trial-dense" : ""}"><header class="trial-header"><a href="?" class="trial-home" aria-label="返回果冻果园">‹ 果冻果园</a><span>新关卡试玩</span><button data-trial="settings" aria-label="音效与设置">设置</button></header><section class="trial-card" aria-label="流转送达试玩"><div class="trial-title"><button data-trial="themes" class="trial-theme-button">${s ? `${s.puzzle.themeId} · ${esc(current!.name)} ▾` : "选择主题 ▾"}</button><div class="trial-title-tools"><button class="trial-dense-settings" data-trial="settings" aria-label="音效与设置">设置</button><button data-trial="pause" ${!s ? "disabled" : ""}>暂停</button></div></div>${s ? body(s) : `<div class="trial-loading" role="status">${busy ? "正在生成棋盘…" : "选择主题开始试玩。"}</div>`}<div class="trial-bottom"><span id="trial-save">${storageOK ? (s ? "已保存" : "") : saveFailure}</span>${s ? `<span class="trial-seed" title="${esc(s.puzzle.id)}">种子 ${s.puzzle.seed}</span>` : ""}</div></section></main><div id="trial-dialog-root"></div><input id="trial-import" type="file" accept=".json,application/json" hidden>`;
     bindActions(app);
     if (retainedDialog) {
       app.querySelector("#trial-dialog-root")!.replaceWith(retainedDialog);
@@ -260,19 +280,20 @@ export function initJourneyView(app: HTMLElement) {
     const first = won ? "achieved" : s.state.phase === "lost" ? "failed" : "pending";
     const second = s.hintLevel > 0 ? "failed" : won ? "achieved" : "pending";
     const third = challengeState.status === "achieved" ? "achieved" : challengeState.status === "failed" ? "failed" : "pending";
+    const requirements = starRequirements(s);
     const rows = [
-      { status: first, condition: "完成送达目标", reason: won ? "送达目标已完成" : s.state.phase === "lost" ? "本盘暂时无法继续，可撤销" : "完成本盘订单即可获得" },
-      { status: second, condition: "本盘不用解题提示", reason: s.hintLevel > 0 ? "已使用解题提示，重试仍保留记录" : won ? "独立完成，未使用解题提示" : "规则说明、预览和自动检查不扣星" },
-      { status: third, condition: challengeText(), reason: challengeState.reason || (won ? "专属挑战已完成" : "满足专属挑战后通关") },
+      { status: first, condition: requirements[0], reason: s.state.phase === "lost" ? "可以撤销一步再试。" : "" },
+      { status: second, condition: requirements[1], reason: s.hintLevel > 0 ? "已使用解题提示，重试也会保留记录。" : "" },
+      { status: third, condition: requirements[2], reason: challengeState.reason },
     ];
-    return `<div class="trial-stars-card${result ? " trial-result-reasons" : ""}" aria-label="本盘三颗星条件">${rows.map((row, index) => `<div class="trial-star-row" data-star="${index + 1}" data-status="${row.status}"><span class="trial-condition-icon ${row.status}" aria-hidden="true">${icon("star", row.status === "achieved" ? "lit" : "")}${row.status === "failed" ? '<i></i>' : ""}</span><div><span class="trial-star-condition ${index === 2 ? "trial-challenge" : ""}">${esc(row.condition)}</span><span class="trial-star-reason">${row.status === "achieved" ? "已获得 · " : row.status === "failed" ? `${["送达星", "独立完成星", "第三星"][index]}已失去 · ` : ""}${esc(row.reason)}</span></div>${index === 2 && row.status === "failed" && s.history.length && !result ? `<button data-trial="undo" class="trial-challenge-undo" ${busy ? "disabled" : ""}>撤销一步</button>` : ""}</div>`).join("")}</div>`;
+    return `<div class="trial-stars-card${result ? " trial-result-reasons" : ""}" aria-label="本盘三颗星条件">${rows.map((row, index) => `<div class="trial-star-row" data-star="${index + 1}" data-status="${row.status}"><span class="trial-condition-icon ${row.status}" aria-hidden="true">${icon("star", row.status === "achieved" ? "lit" : "")}${row.status === "failed" ? '<i></i>' : ""}</span><div><span class="trial-star-condition ${index === 2 ? "trial-challenge" : ""}">${esc(row.condition)}</span><span class="trial-star-reason">${row.status === "achieved" ? "已获得" : row.status === "failed" ? `本盘未达成${row.reason ? ` · ${esc(row.reason)}` : ""}` : esc(row.reason)}</span></div>${index === 2 && row.status === "failed" && s.history.length && !result ? `<button data-trial="undo" class="trial-challenge-undo" ${busy ? "disabled" : ""}>撤销一步</button>` : ""}</div>`).join("")}</div>`;
   }
   function resultDialog() {
     const s = session();
     if (s.state.phase !== "won") return;
-    const finalTheme = s.puzzle.themeId === 18;
+    const finalTheme = s.puzzle.themeId === THEMES.at(-1)!.id;
     pendingResult = false;
-    modal(finalTheme ? "六主题体验完成" : "莓好相遇，送达完成！", `<div class="result-fruits">${fruitSVG(3)}${fruitSVG(1)}${fruitSVG(2)}</div><div class="result-stars">${[true, s.hintLevel === 0, challengeState.status === "achieved"].map(earned => icon("star", earned ? "lit" : "")).join("")}</div>${starConditions(s, true)}<button id="trial-result-next" class="primary-button">${finalTheme ? "选择主题" : `进入下一主题 · ${THEMES.find(t => t.id === s.puzzle.themeId + 1)!.name}`} ${icon("arrow")}</button><button id="trial-result-stay" class="secondary-button">留在本盘</button><button id="trial-result-retry" class="secondary-button">${finalTheme ? "再玩一盘" : "重试本盘"}</button>`);
+    modal(goalCompletion[s.puzzle.stages[s.state.stageIndex].goal.kind], `<div class="result-fruits">${fruitSVG(3)}${fruitSVG(1)}${fruitSVG(2)}</div><div class="result-stars">${[true, s.hintLevel === 0, challengeState.status === "achieved"].map(earned => icon("star", earned ? "lit" : "")).join("")}</div>${starConditions(s, true)}<button id="trial-result-next" class="primary-button">${finalTheme ? "选择主题" : `进入下一主题 · ${THEMES.find(t => t.id === s.puzzle.themeId + 1)!.name}`} ${icon("arrow")}</button><button id="trial-result-stay" class="secondary-button">留在本盘</button><button id="trial-result-retry" class="secondary-button">${finalTheme ? "再玩一盘" : "重试本盘"}</button>`);
     app.querySelector("#trial-result-next")!.addEventListener("click", () => {
       closeModal();
       if (finalTheme) themes();
@@ -292,7 +313,7 @@ export function initJourneyView(app: HTMLElement) {
       )
       .join("");
     const won = st.phase === "won";
-    return `<div class="trial-objective" aria-label="送达目标"><div><small>在采收口配对 · 送达</small><div class="trial-goal-fruits">${goals || "清空棋盘"}</div></div><button data-trial="challenge" class="trial-star" aria-label="查看三星条件" title="${won ? "本盘收获" : "本主题最佳收获"} · ${won ? earnedStars(s) : (save.best[p.themeId] ?? 0)} 星">${starIcons(won ? earnedStars(s) : (save.best[p.themeId] ?? 0))}</button></div>${starConditions(s)}<div class="trial-stats"><span>操作 <b>${st.moves}</b>${stage.budget === undefined ? "" : ` / ${stage.budget}`}</span><span>连消 <b>${st.combo}</b></span><span>得分 <b>${st.score}</b></span><span class="trial-juice" aria-label="果汁蓄能 ${st.juice}%">果汁 ${st.juice}%<i style="width:${st.juice}%"></i></span></div><div class="trial-board-viewport"><div class="trial-board-shell" style="--cols:${st.board[0].length};--rows:${st.board.length}"><div id="trial-board" class="trial-board ${preview ? "trial-preview" : ""}" role="group" aria-label="${preview ? "下一拍位置预览" : "水果棋盘"}">${boardHTML(s)}</div><svg class="trial-path" id="trial-path" aria-hidden="true" viewBox="-0.35 -0.35 ${st.board[0].length + 0.7} ${st.board.length + 0.7}" preserveAspectRatio="none">${path.length ? `<polyline points="${path.map((v) => `${Math.max(-0.2, Math.min(st.board[0].length + 0.2, v.c + 0.5))},${Math.max(-0.2, Math.min(st.board.length + 0.2, v.r + 0.5))}`).join(" ")}"/>` : ""}</svg></div></div><div class="trial-legend"><span>▣ 采收口</span><span>箭头：下一拍方向</span><span>坐标从左上角数</span></div><div class="trial-feedback ${st.phase !== "playing" ? "trial-ended" : ""}" role="status">${won ? `送达完成！${starText(earnedStars(s))} · 可撤销最后一步` : st.phase === "lost" ? `${esc(st.failure ?? "暂时无法继续")}，可以免费撤销。` : preview ? "预览整条轨道转一格（实际先消除，再移动）。点击预览返回。" : esc(message)}</div><div class="trial-actions"><div class="trial-tools"><button data-trial="undo" ${busy || !s.history.length ? "disabled" : ""}>↶ 撤销</button><button data-trial="preview" aria-pressed="${preview}" ${busy ? "disabled" : ""}>${preview ? "返回棋盘" : "下一拍"}</button><button data-trial="hint" ${busy ? "disabled" : ""}>解题提示</button></div><div class="trial-secondary"><button data-trial="retry" ${busy ? "disabled" : ""}>重试本盘</button><button data-trial="new" ${busy ? "disabled" : ""}>${busy ? "准备中…" : "换一盘"}</button><button data-trial="rules">玩法说明</button></div></div>${won ? `<button data-trial="result" class="primary-button trial-result-entry">查看收获${p.themeId < 18 ? "／进入下一主题" : "／选择主题"} ${icon("arrow")}</button>` : ""}`;
+    return `<div class="trial-objective" aria-label="本阶段目标"><div><small>${stage.goal.kind === "deliver" ? "送达目标" : "配对目标"}</small><div class="trial-goal-fruits">${goals || "清空棋盘"}</div></div><button data-trial="challenge" class="trial-star" aria-label="查看三星条件" title="${won ? "本盘收获" : "本主题最佳收获"} · ${won ? earnedStars(s) : (save.best[p.themeId] ?? 0)} 星">${starIcons(won ? earnedStars(s) : (save.best[p.themeId] ?? 0))}</button></div>${starConditions(s)}<div class="trial-stats"><span>步数 <b>${stage.budget === undefined ? st.moves : `${st.stageMoves} / ${stage.budget}`}</b></span><span>连消 <b>${st.combo}</b></span><span>得分 <b>${st.score}</b></span><span class="trial-juice" aria-label="果汁蓄能 ${st.juice}%">果汁 ${st.juice}%<i style="width:${st.juice}%"></i></span></div><div class="trial-board-viewport"><div class="trial-board-shell" style="--cols:${st.board[0].length};--rows:${st.board.length}"><div id="trial-board" class="trial-board ${preview ? "trial-preview" : ""}" role="group" aria-label="${preview ? "下一拍位置预览" : "水果棋盘"}">${boardHTML(s)}</div><svg class="trial-path" id="trial-path" aria-hidden="true" viewBox="-0.35 -0.35 ${st.board[0].length + 0.7} ${st.board.length + 0.7}" preserveAspectRatio="none">${path.length ? `<polyline points="${path.map((v) => `${Math.max(-0.2, Math.min(st.board[0].length + 0.2, v.c + 0.5))},${Math.max(-0.2, Math.min(st.board.length + 0.2, v.r + 0.5))}`).join(" ")}"/>` : ""}</svg></div></div><div class="trial-legend"><span>▣ 采收口</span><span>箭头表示移动方向</span></div><div class="trial-feedback ${st.phase !== "playing" ? "trial-ended" : ""}" role="status">${won ? `${goalCompletion[stage.goal.kind]}！${starText(earnedStars(s))} · 可撤销最后一步` : st.phase === "lost" ? `${esc(st.failure ?? "本盘已结束，可以撤销。")}` : preview ? "预览轨道移动一格后的位置。实战先消除，再移动。" : esc(message)}</div><div class="trial-actions"><div class="trial-tools"><button data-trial="undo" ${busy || !s.history.length ? "disabled" : ""}>↶ 撤销</button><button data-trial="preview" title="预览轨道移动" aria-label="${preview ? "返回棋盘" : "下一拍"}" aria-pressed="${preview}" ${busy ? "disabled" : ""}>${preview ? "返回" : "下一拍"}</button><button data-trial="hint" aria-label="解题提示" ${busy ? "disabled" : ""}>提示</button></div><div class="trial-secondary"><button data-trial="retry" aria-label="重试本盘" ${busy ? "disabled" : ""}>重试</button><button data-trial="new" ${busy ? "disabled" : ""}>${busy ? "准备中…" : "换一盘"}</button><button data-trial="rules" aria-label="玩法说明">玩法</button></div></div>${won ? `<button data-trial="result" class="primary-button trial-result-entry">查看收获 ${icon("arrow")}</button>` : ""}`;
   }
   function boardHTML(s: JourneySession) {
     const p = s.puzzle,
@@ -352,7 +373,8 @@ export function initJourneyView(app: HTMLElement) {
     }
     const previous = selected;
     const before = structuredClone(session().state.board);
-    const movementBefore = session().puzzle.stages[session().state.stageIndex].movement;
+    const stageBefore = session().puzzle.stages[session().state.stageIndex];
+    const movementBefore = stageBefore.movement;
     const result = playMove(session(), { a: previous, b: point });
     if (!result.ok) {
       selected =
@@ -372,14 +394,16 @@ export function initJourneyView(app: HTMLElement) {
     busy = true;
     const token = ++animation;
     sound("match", { combo: session().state.combo });
+    if (result.delivered === null) {
+      message = movementBefore.kind === "conveyor" ? "配对成功，轨道移动一格。" : "配对成功。";
+    } else {
+      const action = stageBefore.goal.kind === "deliver" ? "送达" : "收集";
+      message = `已${action} 1 对${fruitName(result.delivered)}。`;
+    }
     if (result.bloomed) {
-      message = "✦ 果汁满槽！每一步思考，都值得庆祝。";
+      message += "果汁已蓄满。";
       sound("fever");
-    } else
-      message =
-        result.delivered !== null
-          ? `${fruitName(result.delivered)}已送达！再看看轨道上的机会。`
-          : "轨道前进了一格，看看下一对在哪里。";
+    }
     recordJourneyResult(save, session());
     persist();
     refreshChallenge();
@@ -454,8 +478,8 @@ export function initJourneyView(app: HTMLElement) {
       stopAudio();
       persist();
       return modal(
-        "果园等你，不着急",
-        '<p>本盘已经保存。连消和果汁都不会随时间减少。</p><button data-close class="trial-primary">继续这一局</button>',
+        "已暂停",
+        `<p>${storageOK ? "进度已保存。" : "未能保存进度，请在设置中导出。"}</p><button data-close class="trial-primary">继续这一局</button>`,
       );
     }
     if (name === "challenge") return challenge();
@@ -464,7 +488,7 @@ export function initJourneyView(app: HTMLElement) {
       if (undoMove(session())) {
         selected = null;
         preview = false;
-        message = "已撤销一步，免费重新思考。";
+        message = "已撤销一步。";
         pendingResult = false;
         refreshChallenge();
         persist();
@@ -480,8 +504,8 @@ export function initJourneyView(app: HTMLElement) {
     }
     if (name === "retry") {
       modal(
-        "重试这一盘？",
-        '<p>回到相同初盘。解题提示使用记录仍保留。</p><button id="trial-confirm-retry" class="trial-primary">确认重试</button>',
+        "重试本盘？",
+        '<p>回到开局，保留已用提示记录。</p><button id="trial-confirm-retry" class="trial-primary">确认重试</button>',
       );
       app
         .querySelector("#trial-confirm-retry")!
@@ -491,7 +515,7 @@ export function initJourneyView(app: HTMLElement) {
           save.session = retrySession(session());
           selected = null;
           preview = false;
-          message = "同一盘，试试另一种顺序。";
+          message = "已回到开局。";
           pendingResult = false;
           refreshChallenge();
           persist();
@@ -500,8 +524,8 @@ export function initJourneyView(app: HTMLElement) {
     }
     if (name === "new") {
       modal(
-        "换一盘新水果？",
-        '<p>本主题生成新的局面，替换当前棋盘；已经获得的最高星数会保留。</p><button id="trial-confirm-new" class="trial-primary">确认换一盘</button>',
+        "换一盘？",
+        '<p>生成同主题的新棋盘，并保留最高星数。</p><button id="trial-confirm-new" class="trial-primary">确认换一盘</button>',
       );
       app.querySelector("#trial-confirm-new")!.addEventListener("click", () => {
         closeModal();
@@ -513,16 +537,16 @@ export function initJourneyView(app: HTMLElement) {
     moving?.cancel();
     challengeMonitor.cancel();
     pendingResult = false;
-    request?.abort();
+    request?.controller.abort();
     const controller = new AbortController();
-    request = controller;
+    request = { controller, themeId: id };
     busy = true;
     selected = null;
     preview = false;
     path = [];
     animationBoard = null;
     animation++;
-    message = "正在准备新棋盘…";
+    message = "正在生成棋盘…";
     render();
     try {
       const result = await requestPuzzle(id, save.recent, controller.signal);
@@ -534,8 +558,9 @@ export function initJourneyView(app: HTMLElement) {
       save.recent = [
         result.puzzle.id,
         ...save.recent.filter((x) => x !== result.puzzle.id),
-      ].slice(0, 20);
-      generation = `${result.source} · ${Math.round(result.elapsedMs)}ms`;
+      ].slice(0, RECENT_PUZZLE_LIMIT);
+      const source = result.source === "generated" ? "实时生成" : "备用棋盘";
+      generation = `${source} · ${Math.round(result.elapsedMs)} ms`;
       message = THEMES.find((t) => t.id === id)!.lesson;
       busy = false;
       refreshChallenge();
@@ -544,11 +569,11 @@ export function initJourneyView(app: HTMLElement) {
     } catch (error) {
       if (controller.signal.aborted) return;
       busy = false;
-      message = `棋盘准备失败：${error instanceof Error ? error.message : "请重试"}`;
+      message = error instanceof Error ? error.message : "请重试。";
       render();
       modal(
-        "暂时没有准备好",
-        `<p>${esc(message)}</p><button id="trial-generate-again" class="trial-primary">重新准备</button>`,
+        "棋盘生成失败",
+        `<p>${esc(message)}</p><button id="trial-generate-again" class="trial-primary">重新生成</button>`,
       );
       app
         .querySelector("#trial-generate-again")!
@@ -556,9 +581,12 @@ export function initJourneyView(app: HTMLElement) {
           closeModal();
           void start(id);
         });
+    } finally {
+      if (request?.controller === controller) request = null;
     }
   }
   function modal(title: string, content: string) {
+    importRevision++;
     cancelIdle();
     if (!dialogOpen) lastFocus = document.activeElement as HTMLElement;
     dialogOpen = true;
@@ -571,6 +599,7 @@ export function initJourneyView(app: HTMLElement) {
     app.querySelector<HTMLElement>(".trial-dialog button")?.focus();
   }
   function closeModal() {
+    importRevision++;
     app.querySelector("#trial-dialog-root")!.innerHTML = "";
     app.querySelector<HTMLElement>(".trial-page")!.inert = false;
     dialogOpen = false;
@@ -581,8 +610,8 @@ export function initJourneyView(app: HTMLElement) {
   }
   function themes() {
     modal(
-      "六个主题，每次都新鲜",
-      `<p>流转送达 · 第三章。先从 13 关了解采收口，再挑战组合推演。</p><div class="trial-theme-list">${THEMES.map((t) => `<button data-pick-theme="${t.id}"><b>${t.id} · ${esc(t.name)} <em class="trial-star-summary" aria-label="最佳 ${save.best[t.id] ?? 0} 星">${starIcons(save.best[t.id] ?? 0)}</em></b><span>${esc(t.lesson)}</span></button>`).join("")}</div><p class="trial-fine">换主题会替换当前棋盘，最佳星数保留。其余章节正在设计中。</p>`,
+      "选择主题",
+      `<div class="trial-theme-list">${THEMES.map((t) => `<button data-pick-theme="${t.id}"><b>${t.id} · ${esc(t.name)} <em class="trial-star-summary" aria-label="最佳 ${save.best[t.id] ?? 0} 星">${starIcons(save.best[t.id] ?? 0)}</em></b><span>${esc(t.lesson)}</span></button>`).join("")}</div><p class="trial-fine">选择主题会替换当前棋盘，各主题的最高星数保留。</p>`,
     );
     app.querySelectorAll<HTMLButtonElement>("[data-pick-theme]").forEach((b) =>
       b.addEventListener("click", () => {
@@ -594,23 +623,23 @@ export function initJourneyView(app: HTMLElement) {
   }
   function rules() {
     modal(
-      "流转送达 · 玩法小抄",
-      `<ol class="trial-rules"><li>依次点选相同水果，空格和外沿都能走，连线最多转两次弯。石头不能穿过。</li><li>每次成功配对后，所有轨道沿箭头同时转一格，空位一起移动。预览展示整条轨道下一拍的位置，不会消耗操作。</li><li>目标配对时，至少一个水果在标记 ▣ 的采收口才算送达。仅经过采收口不算；以消除前的位置判断。</li><li>目标水果可以在站外消除，但必须留够目标数量。系统只保护数量，能否继续开路和推进需要你判断。</li><li>无可用配对或操作数用尽就失败。仍有配对也可能已经无解，可以随时免费撤销回开局。</li><li>连消、果汁不随思考时间衰减；满槽庆祝。撤销恢复奖励。</li></ol><p>方向键移动焦点，Enter 选中，Z 撤销，H 提示，P 预览，空格暂停。</p><p class="trial-fine">完成送达 · 不用解题提示 · 达成本盘挑战，各收获一颗星。规则说明和下一拍预览不扣星。</p>`,
+      "流转送达玩法",
+      `<ol class="trial-rules"><li>点选两颗相同水果。连线最多转两次弯，可经过空格和棋盘外沿。</li><li>每次消除后，所有轨道沿箭头移动一格，空格也会移动。「下一拍」预览这次移动。</li><li>消除一对目标水果时，至少一颗已经在采收口（▣）才计为送达。</li><li>可在采收口外消除多余的目标水果。若剩余数量不足以完成任务，系统会拒绝这次操作。</li><li>没有可消除的配对或本阶段步数用尽时，可以撤销。撤销也会还原连消、分数和果汁。</li></ol><p>方向键移动焦点，Enter 点选，Z 撤销，H 提示，P 预览，空格或 Esc 暂停。</p>`,
     );
   }
   function challenge() {
     const s = session();
     modal(
-      "这一盘的三颗星",
-      `<div class="trial-star-rules"><p>★ 完成送达目标</p><p>★ 本盘不用解题提示${s.hintLevel ? "（本盘已用提示）" : ""}</p><p>★ ${esc(challengeText())}</p></div><p>${s.puzzle.challenge.kind === "fuel" ? `本盘最低普通水果消耗：${s.puzzle.challenge.limit} 对。` : s.puzzle.challenge.kind === "first-window" ? "首次窗口：目标水果第一次来到采收口时，当回合就配对送达。" : s.puzzle.challenge.kind === "preserve" ? `需要保留的水果是${fruitName(s.puzzle.challenge.fruit)}；通关时仍需留在棋盘上。` : "即使目标数量有富余，想取得第三星也要让每次目标配对都发生在采收口。"}</p><p>免费撤销不扣星。重试本盘保留提示记录，星数只取单局最好成绩，不跨局拼星。</p><details class="trial-diagnostics"><summary>复现信息</summary><p class="trial-fine">种子 ${s.puzzle.seed} · 规则 v${s.puzzle.version} · 生成器 v${s.puzzle.generatorVersion}<br>${esc(s.puzzle.id)}${generation ? `<br>${esc(generation)}` : ""}</p></details>`,
+      "三星条件",
+      `<ul class="trial-star-rules">${starRequirements(s).map(requirement => `<li>${esc(requirement)}</li>`).join("")}</ul><p>每个主题记录单盘最高星数。查看规则和预览不会扣星。</p><details class="trial-diagnostics"><summary>复现信息</summary><p class="trial-fine">种子 ${s.puzzle.seed} · 规则 v${s.puzzle.version} · 生成器 v${s.puzzle.generatorVersion}<br>${esc(s.puzzle.id)}${generation ? `<br>${esc(generation)}` : ""}</p></details>`,
     );
   }
   function hints() {
     const s = session(),
       level = s.hintLevel;
     modal(
-      "需要一点解题灵感？",
-      `<p>展开任一级解题提示，本盘将失去“不用提示”这一星；撤销和重试都不清除记录。规则与预览仍可免费查看。</p>${level >= 1 ? `<div class="trial-hint"><b>1 · 主题思路</b><p>${esc(theme().hint)}</p></div>` : ""}${
+      "解题提示",
+      `<p>${level === 0 ? "查看解题提示会失去“不用提示”星。撤销或重试都会保留这条记录。" : "本盘已用提示，无法获得“不用提示”星。"}</p>${level >= 1 ? `<div class="trial-hint"><b>1 · 主题思路</b><p>${esc(theme().hint)}</p></div>` : ""}${
         level >= 2
           ? `<div class="trial-hint"><b>2 · 本盘关键关系</b><p>${esc(theme().lesson)}</p>${s.puzzle.proof.critical
               .slice(0, 2)
@@ -620,7 +649,7 @@ export function initJourneyView(app: HTMLElement) {
               )
               .join("")}</div>`
           : ""
-      }${level >= 3 ? `<div class="trial-hint"><b>3 · 从初盘开始的完整解法</b><p>坐标以每步操作前的棋盘为准。这条解法可以完成专属挑战；本盘已用提示，仍会失去“不用提示”星。需要从初盘开始；查看答案不会自动通关。</p><ol>${s.puzzle.proof.challenge.map((m: Move) => `<li>${coord(m.a)} ↔ ${coord(m.b)}</li>`).join("")}</ol></div>` : `<button id="trial-reveal-hint" class="trial-primary">${level === 0 ? "使用提示 · 展开主题思路" : level === 1 ? "展开本盘关键关系" : "展开本盘完整解法"}</button>`}`,
+      }${level >= 3 ? `<div class="trial-hint"><b>3 · 完整解法</b><p>从开局按顺序配对可完成挑战。每一步都从当前棋盘左上角数行列。</p><ol>${s.puzzle.proof.challenge.map((m: Move) => `<li>${coord(m.a)} ↔ ${coord(m.b)}</li>`).join("")}</ol></div>` : `<button id="trial-reveal-hint" class="trial-primary">${level === 0 ? "使用提示 · 展开主题思路" : level === 1 ? "展开本盘关键关系" : "展开本盘完整解法"}</button>`}`,
     );
     app.querySelector("#trial-reveal-hint")?.addEventListener("click", () => {
       s.hintLevel++;
@@ -630,27 +659,34 @@ export function initJourneyView(app: HTMLElement) {
     });
   }
   function settings() {
+    const volume = Math.round(preferences.volume * 100);
     modal(
       "音效与设置",
-      `<div class="trial-setting"><span>果园音效</span><button id="trial-sound" role="switch" aria-checked="${preferences.settings.sound}">${preferences.settings.sound ? "开启" : "关闭"}</button></div><label class="trial-setting">音效音量<input id="trial-volume" type="range" min="0" max="100" value="${Math.round(preferences.settings.volume * 100)}" ${preferences.settings.sound ? "" : "disabled"}></label><div class="trial-setting"><span>灵动效果</span><button id="trial-motion" role="switch" aria-checked="${preferences.settings.motion}">${preferences.settings.motion ? "开启" : "关闭"}</button></div><p class="trial-fine">音画偏好与原模式共用。试玩进度独立保存，导入仅替换试玩进度。</p><div class="trial-backups"><button id="trial-export">导出试玩进度</button><button id="trial-import-button">导入试玩进度</button></div><a class="trial-return" href="?">返回原主线／自由练习／限时模式 →</a>`,
+      `<div class="trial-setting"><span id="trial-sound-label">音效</span><button id="trial-sound" role="switch" aria-labelledby="trial-sound-label" aria-checked="${preferences.sound}">${preferences.sound ? "开启" : "关闭"}</button></div>
+      <div class="trial-setting"><label for="trial-volume">音量</label><div class="trial-volume"><input id="trial-volume" type="range" min="0" max="100" value="${volume}" ${preferences.sound ? "" : "disabled"}><output id="trial-volume-value" for="trial-volume">${volume}%</output></div></div>
+      <div class="trial-setting"><span id="trial-motion-label">动效</span><button id="trial-motion" role="switch" aria-labelledby="trial-motion-label" aria-checked="${preferences.motion}">${preferences.motion ? "开启" : "关闭"}</button></div>
+      <p id="trial-settings-status" class="trial-fine" aria-live="polite">${settingsOK ? "" : settingsFailure}</p>
+      <p class="trial-fine">经典模式与试玩共用音效和动效设置。两边的存档分别导入和导出。</p><div class="trial-backups"><button id="trial-export">导出试玩进度</button><button id="trial-import-button">导入试玩进度</button></div><a class="trial-return" href="?">返回经典模式 →</a>`,
     );
     for (const key of ["sound", "motion"] as const)
       app.querySelector(`#trial-${key}`)!.addEventListener("click", () => {
-        preferences.settings[key] = !preferences.settings[key];
+        preferences[key] = !preferences[key];
         syncPreferences();
         if (!motionEnabled()) moving?.cancel();
-        writeSave(preferences);
+        settingsOK = writeSettings({ [key]: preferences[key] });
         settings();
         app.querySelector<HTMLButtonElement>(`#trial-${key}`)?.focus();
       });
-    app
-      .querySelector<HTMLInputElement>("#trial-volume")!
-      .addEventListener("input", (e) => {
-        preferences.settings.volume =
-          Number((e.target as HTMLInputElement).value) / 100;
-        setVolume(preferences.settings.volume);
-        writeSave(preferences);
-      });
+    const slider = app.querySelector<HTMLInputElement>("#trial-volume")!;
+    slider.addEventListener("input", () => {
+      preferences.volume = slider.valueAsNumber / 100;
+      setVolume(preferences.volume);
+      app.querySelector("#trial-volume-value")!.textContent = `${slider.value}%`;
+    });
+    slider.addEventListener("change", () => {
+      settingsOK = writeSettings({ volume: preferences.volume });
+      app.querySelector("#trial-settings-status")!.textContent = settingsOK ? "" : settingsFailure;
+    });
     app.querySelector("#trial-export")!.addEventListener("click", () => {
       try {
         persist();
@@ -666,7 +702,7 @@ export function initJourneyView(app: HTMLElement) {
       } catch (error) {
         modal(
           "无法导出这份进度",
-          `<p>${esc(error instanceof Error ? error.message : "暂时无法生成存档文件。")}</p><p>当前棋盘保持不变。</p>`,
+          `<p>${esc(error instanceof Error ? error.message : "无法生成存档文件。")}</p>`,
         );
       }
     });
@@ -681,20 +717,23 @@ export function initJourneyView(app: HTMLElement) {
       file = input.files?.[0];
     input.value = "";
     if (!file) return;
+    const revision = ++importRevision;
     try {
       if (file.size > MAX_JOURNEY_SAVE_FILE_BYTES)
         throw new Error(
           `文件超过 ${MAX_JOURNEY_SAVE_FILE_BYTES / 1_000_000} MB，请选择本游戏导出的存档。`,
         );
-      const imported = parseJourneySave(await file.text());
+      const text = await file.text();
+      if (revision !== importRevision) return;
+      const imported = parseJourneySave(text);
       modal(
         "导入试玩进度？",
-        `<p>这会替换本机试玩棋盘与星数。原模式的进度不会改变。</p><button id="trial-confirm-import" class="trial-primary">确认导入</button>`,
+        `<p>导入将替换本机的试玩棋盘和试玩星数。</p><button id="trial-confirm-import" class="trial-primary">确认导入</button>`,
       );
       app
         .querySelector("#trial-confirm-import")!
         .addEventListener("click", () => {
-          request?.abort();
+          request?.controller.abort();
           moving?.cancel();
           challengeMonitor.cancel();
           animation++;
@@ -706,18 +745,18 @@ export function initJourneyView(app: HTMLElement) {
           busy = false;
           path = [];
           animationBoard = null;
-          message = "试玩进度已导入。";
+          message = "已导入试玩进度。";
           generation = "";
-          pendingResult = false;
           refreshChallenge();
           persist();
           render();
           if (!save.session) void start(13);
         });
     } catch (error) {
+      if (revision !== importRevision) return;
       modal(
         "无法导入这份进度",
-        `<p>${esc(error instanceof Error ? error.message : "文件格式不正确")}</p><p>当前棋盘保持不变。</p>`,
+        `<p>${esc(error instanceof Error ? error.message : "文件格式不正确")}</p>`,
       );
     }
   }
@@ -774,21 +813,29 @@ export function initJourneyView(app: HTMLElement) {
       cancelIdle();
       moving?.cancel();
       stopAudio();
-      persist();
       if (!dialogOpen && save.session && !busy) action("pause");
+      else persist();
     } else scheduleIdle();
   });
   window.addEventListener("pagehide", () => {
+    importRevision++;
     cancelIdle();
     moving?.cancel();
     challengeMonitor.cancel();
     stopAudio();
     persist();
-    request?.abort();
+    themeToResume = request?.themeId;
+    request?.controller.abort();
   });
   window.addEventListener("pageshow", (event) => {
     if (!event.persisted) return;
     // A cached document resumes with its terminated workers still gone.
+    if (themeToResume !== undefined) {
+      const id = themeToResume;
+      themeToResume = undefined;
+      void start(id);
+      return;
+    }
     refreshChallenge();
     scheduleIdle();
     if (pendingResult && !busy && !dialogOpen && !document.hidden) resultDialog();
@@ -801,7 +848,7 @@ export function initJourneyView(app: HTMLElement) {
     const canExportOriginal = loaded.rawBackup !== undefined;
     modal(
       "发现需要处理的试玩存档",
-      `<p>${esc(loaded.warning)}</p>${canExportOriginal ? `<p>原存档仍保留。开始新试玩后才替换它，可以先导出原文件。</p><button id="trial-export-damaged" class="trial-primary">导出原存档</button>` : `<p>本次未能取得原存档内容，暂时无法导出原文件。开始新的试玩可能在存储恢复后替换原进度。</p>`}<p id="trial-recovery-error" role="alert"></p><button id="trial-reset-damaged" class="trial-primary">开始新的试玩</button>`,
+      `<p>${esc(loaded.warning)}</p>${canExportOriginal ? `<p>开始新试玩会替换原存档。可以先导出原文件。</p><button id="trial-export-damaged" class="trial-primary">导出原存档</button>` : `<p>暂时无法导出原文件。开始新试玩后，浏览器恢复写入时可能覆盖原进度。</p>`}<p id="trial-recovery-error" role="alert"></p><button id="trial-reset-damaged" class="trial-primary">开始新的试玩</button>`,
     );
     app
       .querySelector("#trial-export-damaged")
@@ -832,8 +879,5 @@ export function initJourneyView(app: HTMLElement) {
       void start(13);
     });
   } else if (!save.session) void start(13);
-  else {
-    persist();
-    action("pause");
-  }
+  else action("pause");
 }

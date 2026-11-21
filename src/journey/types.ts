@@ -1,6 +1,7 @@
 import type { Board, Point } from "../engine";
 
 export type ThemeId = 13 | 14 | 15 | 16 | 17 | 18;
+export const RECENT_PUZZLE_LIMIT = 20;
 export type Move = { a: Point; b: Point };
 export type Track = { cells: Point[]; direction: 1 | -1 };
 export type Movement =
@@ -79,7 +80,6 @@ export type Theme = {
   id: ThemeId;
   name: string;
   lesson: string;
-  challengeText: string;
   hint: string;
 };
 export type MatchResult =

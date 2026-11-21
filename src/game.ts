@@ -11,6 +11,11 @@ import {
 import type { Game, Snapshot } from "./storage";
 
 export const COMBO_WINDOW = 5500;
+export const PAIR_POINTS = 100;
+export const COMBO_STEP_POINTS = 25;
+export const MAX_COMBO_BONUS = 225;
+export const FEVER_DURATION_MS = 10_000;
+export const SPRINT_CLEAR_BONUS = 500;
 export type Outcome = {
   points: number;
   combo: number;
@@ -41,7 +46,7 @@ function settleBoard(g: Game, level: Level, rng: () => number) {
   if (g.phase !== "playing" || remaining(g.board) !== 0) return false;
   g.history = [];
   if (g.mode === "sprint") {
-    g.score += 500;
+    g.score += SPRINT_CLEAR_BONUS;
     g.round++;
     g.board = generateBoard(level, rng);
     g.total += remaining(g.board);
@@ -80,7 +85,8 @@ export function commitMatch(
     g.cleared > 0 && g.elapsed - g.lastMatch <= COMBO_WINDOW ? g.combo + 1 : 1;
   g.bestCombo = Math.max(g.bestCombo, g.combo);
   g.lastMatch = g.elapsed;
-  const points = (100 + Math.min(g.combo - 1, 9) * 25) * (g.fever > 0 ? 2 : 1);
+  const comboBonus = Math.min((g.combo - 1) * COMBO_STEP_POINTS, MAX_COMBO_BONUS);
+  const points = (PAIR_POINTS + comboBonus) * (g.fever > 0 ? 2 : 1);
   g.score += points;
   g.cleared++;
   let startedFever = false;
@@ -88,7 +94,7 @@ export function commitMatch(
     g.juice = Math.min(100, g.juice + 12 + Math.min(g.combo - 1, 4) * 2);
     if (g.juice >= 100) {
       g.juice = 0;
-      g.fever = 10000;
+      g.fever = FEVER_DURATION_MS;
       startedFever = true;
     }
   }

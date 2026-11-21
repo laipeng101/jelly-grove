@@ -7,7 +7,7 @@ export default defineConfig({
   timeout: 30_000,
   outputDir: "output/playwright/regression",
   reporter: [
-    ["list"],
+    ["dot"],
     ["html", { outputFolder: "output/playwright/report", open: "never" }],
   ],
   use: {

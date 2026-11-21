@@ -33,7 +33,9 @@ for (const theme of [13, 14, 15, 16, 17, 18] as ThemeId[]) {
   metrics.push({ theme, distinct: seen.size, requests: attempts });
   console.log(`Theme ${theme}: ${seen.size} distinct certified backups`);
 }
-writeFileSync("src/journey/backups.json", JSON.stringify(backups));
+const backupDirectory = "src/journey/generated";
+mkdirSync(backupDirectory, { recursive: true });
+writeFileSync(`${backupDirectory}/backups.json`, JSON.stringify(backups));
 mkdirSync("output/journey", { recursive: true });
 writeFileSync(
   "output/journey/backups-report.json",

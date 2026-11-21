@@ -3,6 +3,18 @@ name: Deploy game to GitHub Pages
 on:
   push:
     branches: [main]
+    # Keep these paths aligned with the standalone build inputs.
+    paths:
+      - src/**
+      - public/**
+      - index.html
+      - package.json
+      - package-lock.json
+      - .npmrc
+      - tsconfig.json
+      - vite.config.ts
+      - scripts/package-offline.mjs
+      - .github/workflows/pages.yml
   workflow_dispatch:
 
 permissions:

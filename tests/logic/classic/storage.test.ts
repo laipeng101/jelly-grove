@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseSave, type Save, type Game } from "../src/storage.ts";
+import { parseSave, type Save, type Game } from "../../../src/storage.ts";
 import {
   generateBoard,
   LEVELS,
@@ -9,7 +9,7 @@ import {
   removePair,
   seedRandom,
   type Level,
-} from "../src/engine.ts";
+} from "../../../src/engine.ts";
 function fixture(): Save {
   const g: Game = {
     mode: "journey",

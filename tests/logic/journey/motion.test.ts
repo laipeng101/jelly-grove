@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { conveyorSteps, TOTAL_MS } from "../src/journey/motion";
-import { attemptMatch, initialState } from "../src/journey/rules";
-import backups from "../src/journey/backups.json";
-import type { Puzzle } from "../src/journey/types";
+import { conveyorSteps, TOTAL_MS } from "../../../src/journey/motion";
+import { attemptMatch, initialState } from "../../../src/journey/rules";
+import backups from "../../../src/journey/generated/backups.json";
+import type { Puzzle } from "../../../src/journey/types";
 test("conveyor presentation exactly matches runtime shifts in both directions", () => {
   assert.equal(TOTAL_MS, 500);
   let seenForward = false, seenBackward = false;

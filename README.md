@@ -34,3 +34,5 @@
 ## GitHub Pages
 
 在仓库 Settings → Pages 选择 GitHub Actions 作为发布源。工作流将离线包发布为站点的 `index.html`。发布状态和网址见 Actions 部署任务。
+
+自动发布的分支和路径见[工作流](.github/workflows/pages.yml)。也可在 Actions 中手动运行发布。

@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import backups from "../src/journey/backups.json";
-import { candidate, certify } from "../src/journey/generator";
-import { solve } from "../src/journey/solver";
-import { initialState } from "../src/journey/rules";
-import { createSession, playMove, undoMove, retrySession } from "../src/journey/session";
-import { analyzeChallenge, quickChallengeStatus } from "../src/journey/challenge-status";
-import type { Puzzle } from "../src/journey/types";
+import backups from "../../../src/journey/generated/backups.json";
+import { candidate, certify } from "../../../src/journey/generator";
+import { solve } from "../../../src/journey/solver";
+import { initialState } from "../../../src/journey/rules";
+import { createSession, playMove, undoMove, retrySession } from "../../../src/journey/session";
+import { analyzeChallenge, quickChallengeStatus } from "../../../src/journey/challenge-status";
+import type { Puzzle } from "../../../src/journey/types";
 test("hidden challenge loss below fuel limit is detected and undo restores opportunity", () => {
   const puzzle = candidate(18, 1311065588);
   assert.ok(certify(puzzle, solve(puzzle, { deadline: Infinity })));

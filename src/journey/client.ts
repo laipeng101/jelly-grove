@@ -1,8 +1,7 @@
 import JourneyWorker from "./worker?worker&inline";
 import { selectBackup } from "./backups";
-export { selectBackup } from "./backups";
 import { validatePuzzle } from "./rules";
-import type { Puzzle, ThemeId } from "./types";
+import { RECENT_PUZZLE_LIMIT, type Puzzle, type ThemeId } from "./types";
 
 export async function requestPuzzle(
   themeId: ThemeId,
@@ -56,7 +55,7 @@ export async function requestPuzzle(
           data.status === "generated" &&
           data.puzzle?.themeId === themeId &&
           validatePuzzle(data.puzzle) &&
-          !recent.slice(-20).includes(data.puzzle.id)
+          !recent.slice(0, RECENT_PUZZLE_LIMIT).includes(data.puzzle.id)
         )
           finish(data.puzzle, "generated");
         else fallback();

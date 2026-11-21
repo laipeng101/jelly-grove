@@ -262,3 +262,9 @@ export function writeSave(s: Save): boolean {
     return false;
   }
 }
+
+export function writeSettings(patch: Partial<Save["settings"]>): boolean {
+  const { save, warning } = loadSave();
+  if (warning) return false;
+  return writeSave({ ...save, settings: { ...save.settings, ...patch } });
+}

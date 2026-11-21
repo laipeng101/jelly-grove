@@ -14,7 +14,7 @@ import {
   canClearGeometry,
   type Board,
   type Point,
-} from "../src/engine.ts";
+} from "../../../src/engine.ts";
 
 // Independent direction-state BFS checks the route enumerator against the actual rules.
 function oracle(b: Board, a: Point, z: Point): boolean {

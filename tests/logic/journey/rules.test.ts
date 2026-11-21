@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { findPath, type Board } from "../src/engine";
+import { findPath, type Board } from "../../../src/engine";
 import {
   attemptMatch,
   challengeMet,
@@ -8,14 +8,14 @@ import {
   legalMoves,
   rotatePreview,
   validatePuzzle,
-} from "../src/journey/rules";
+} from "../../../src/journey/rules";
 import {
   createSession,
   earnedStars,
   playMove,
   retrySession,
   undoMove,
-} from "../src/journey/session";
+} from "../../../src/journey/session";
 import {
   emptyJourneySave,
   KEY,
@@ -26,8 +26,8 @@ import {
   recordJourneyResult,
   serializeJourneySave,
   writeJourneySave,
-} from "../src/journey/storage";
-import type { Move, Puzzle, Stage } from "../src/journey/types";
+} from "../../../src/journey/storage";
+import type { Move, Puzzle, Stage } from "../../../src/journey/types";
 
 const move = (r: number, c: number, rr: number, cc: number): Move => ({
   a: { r, c },

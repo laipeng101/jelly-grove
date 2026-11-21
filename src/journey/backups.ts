@@ -1,6 +1,6 @@
-import backups from "./backups.json";
+import backups from "./generated/backups.json";
 import { validatePuzzle } from "./rules";
-import type { Puzzle, ThemeId } from "./types";
+import { RECENT_PUZZLE_LIMIT, type Puzzle, type ThemeId } from "./types";
 export function selectBackup(
   themeId: ThemeId,
   recent: string[],
@@ -9,7 +9,8 @@ export function selectBackup(
   const pool = (backups as Puzzle[]).filter(
     (p) => p.themeId === themeId && validatePuzzle(p),
   );
-  const fresh = pool.filter((p) => !recent.slice(-20).includes(p.id));
+  const recentIds = new Set(recent.slice(0, RECENT_PUZZLE_LIMIT));
+  const fresh = pool.filter((p) => !recentIds.has(p.id));
   const available = fresh.length ? fresh : pool;
   if (!available.length)
     throw new Error("没有通过验证的备用棋局，请重新载入完整离线包。");

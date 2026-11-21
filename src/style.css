@@ -1557,12 +1557,6 @@ footer .icon {
 .backup-buttons .secondary-button {
   font-size: 11px;
 }
-.settings-small {
-  color: #b5bda6;
-  font-size: 9px;
-  margin-top: 22px;
-  letter-spacing: 0.3px;
-}
 .total-stars {
   display: inline-flex;
   align-items: center;
@@ -2433,9 +2427,6 @@ footer .icon {
   .secondary-button {
     min-height: 47px;
   }
-  .settings-small {
-    font-size: 8px;
-  }
   .save-status {
     display: none;
   }
@@ -2710,7 +2701,6 @@ footer .icon {
 .level-select small,
 .help-foot,
 .help-foot > span,
-.settings-small,
 .secondary-button,
 .text-button,
 footer {
@@ -2766,9 +2756,6 @@ footer {
 .help-foot,
 .help-foot > span {
   font-size: 12px;
-}
-.settings-small {
-  font-size: 10px;
 }
 .chapter-title strong {
   font-size: 14px;
@@ -3547,9 +3534,6 @@ footer {
   }
   .result-reasons {
     gap: 9px;
-    font-size: 10px;
-  }
-  .settings-small {
     font-size: 10px;
   }
 }

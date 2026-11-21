@@ -5,15 +5,15 @@ import {
   commitMatch,
   reconcileGame,
   COMBO_WINDOW,
-} from "../src/game.ts";
+} from "../../../src/game.ts";
 import {
   LEVELS,
   generateBoard,
   findPairs,
   remaining,
   seedRandom,
-} from "../src/engine.ts";
-import type { Game, Mode } from "../src/storage.ts";
+} from "../../../src/engine.ts";
+import type { Game, Mode } from "../../../src/storage.ts";
 
 function game(mode: Mode = "journey"): Game {
   const board = generateBoard(LEVELS[0], seedRandom(40));

@@ -1,23 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import backups from "../src/journey/backups.json";
-import { selectBackup } from "../src/journey/backups";
+import backups from "../../../src/journey/generated/backups.json";
+import { selectBackup } from "../../../src/journey/backups";
 import {
   candidate,
   certify,
   fingerprint,
   generatePuzzle,
-} from "../src/journey/generator";
+} from "../../../src/journey/generator";
 import {
   attemptMatch,
   challengeMet,
   initialState,
   legalMoves,
   validatePuzzle,
-} from "../src/journey/rules";
-import { replay, solve, stateKey } from "../src/journey/solver";
-import type { Board, Point } from "../src/engine";
-import type { JourneyState, Move, Puzzle, ThemeId } from "../src/journey/types";
+} from "../../../src/journey/rules";
+import { replay, solve, stateKey } from "../../../src/journey/solver";
+import type { Board, Point } from "../../../src/engine";
+import type { JourneyState, Move, Puzzle, ThemeId } from "../../../src/journey/types";
 const ids = [13, 14, 15, 16, 17, 18] as ThemeId[];
 // Candidate seeds, selected from live generation. Certification tests use a
 // node limit. The browser benchmark measures the separate wall-clock budget.
@@ -317,7 +317,7 @@ test("backup selection avoids latest twenty and cloning protects bundled data", 
       .filter((p) => p.themeId === themeId)
       .map((p) => p.id);
     const p = selectBackup(themeId, recent, () => 0);
-    assert.ok(!recent.slice(-20).includes(p.id));
+    assert.equal(p.id, recent[20]);
     p.initial[0][0] = 99;
     assert.notEqual(selectBackup(themeId, recent, () => 0).initial[0][0], 99);
   }

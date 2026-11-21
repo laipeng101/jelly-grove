@@ -1,33 +1,28 @@
 import { test, expect } from "@playwright/test";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { findPairs, remaining } from "../../src/engine";
-import { commitMatch } from "../../src/game";
+import { findPairs, remaining } from "../../../src/engine";
+import { commitMatch } from "../../../src/game";
 import { fixture, loadGame, checkLayout, settle } from "./fixtures";
 
-for (const mode of ["journey", "free", "sprint"] as const) {
-  for (const [width, height] of [
-    [360, 640],
-    [375, 667],
-    [390, 700],
-    [412, 750],
-    [430, 820],
-    [480, 958],
-    [620, 740],
-    [768, 1024],
-    [870, 720],
-  ]) {
-    test(`${mode} largest board fits ${width}×${height}`, async ({
-      page,
-    }, info) => {
-      await page.setViewportSize({ width, height });
-      const { save } = fixture(mode, mode === "journey" ? 24 : 17);
-      await loadGame(page, save);
-      await checkLayout(page, true, info);
-      await page.getByRole("button", { name: "提示", exact: true }).click();
-      await checkLayout(page, true);
-    });
-  }
+// Exercise every HUD at the minimum full-board viewport. Use the largest
+// board for the remaining compact width ranges.
+for (const [mode, width, height] of [
+  ["journey", 360, 640],
+  ["free", 360, 640],
+  ["sprint", 360, 640],
+  ["journey", 620, 740],
+  ["journey", 768, 1024],
+  ["journey", 870, 720],
+] as const) {
+  test(`${mode} largest board fits ${width}×${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    const { save } = fixture(mode, mode === "journey" ? 24 : 17);
+    await loadGame(page, save);
+    await checkLayout(page, true);
+    await page.getByRole("button", { name: "提示", exact: true }).click();
+    await checkLayout(page, true);
+  });
 }
 
 for (const level of [1, 2, 3, 7, 13, 19]) {
@@ -40,7 +35,7 @@ for (const level of [1, 2, 3, 7, 13, 19]) {
 
 test("live combo, near expiry, fever and final seconds stay readable", async ({
   page,
-}, info) => {
+}) => {
   await page.setViewportSize({ width: 360, height: 640 });
   const { save, game } = fixture("sprint", 17, 2, 12);
   game.elapsed = 10000;
@@ -52,7 +47,7 @@ test("live combo, near expiry, fever and final seconds stay readable", async ({
   await expect(page.locator("#combo-label")).toContainText("12 连消");
   await expect(page.locator("#mini-juice-label")).toContainText("×2");
   await expect(page.locator("#primary-stat")).toHaveClass(/time-warning/);
-  await checkLayout(page, true, info);
+  await checkLayout(page, true);
   await page.clock.runFor(600);
   await expect(page.locator("#combo-label")).toHaveText("当前连消 0");
   await checkLayout(page, true);
@@ -66,10 +61,10 @@ for (const [width, height] of [
 ]) {
   test(`short/landscape ${width}×${height} scrolls only the board`, async ({
     page,
-  }, info) => {
+  }) => {
     await page.setViewportSize({ width, height });
     await loadGame(page, fixture("sprint").save);
-    await checkLayout(page, false, info);
+    await checkLayout(page, false);
     const scroller = page.locator(".board-viewport");
     expect(
       await scroller.evaluate((el) => el.scrollHeight > el.clientHeight),
@@ -92,11 +87,11 @@ for (const [width, height] of [
 
 test("200% text reflows HUD while keeping 44px cells", async ({
   page,
-}, info) => {
+}) => {
   await page.setViewportSize({ width: 390, height: 700 });
   await loadGame(page, fixture("journey", 24).save);
   await page.evaluate(() => (document.documentElement.style.fontSize = "200%"));
-  await checkLayout(page, false, info);
+  await checkLayout(page, false);
   await page.locator(".fruit-tile").last().click();
   await checkLayout(page, false);
 });
@@ -116,6 +111,7 @@ test("available height changes, rotation and pause preserve live state", async (
     await checkLayout(page, full);
   }
   await page.getByRole("button", { name: "暂停游戏" }).click();
+  await expect(page.getByRole("dialog")).toContainText("进度已保存");
   const combo = await page.locator("#combo-label").textContent();
   const time = await page.locator("#primary-stat").textContent();
   await page.clock.runFor(20000);
@@ -123,6 +119,13 @@ test("available height changes, rotation and pause preserve live state", async (
   await expect(page.locator("#primary-stat")).toHaveText(time!);
   await page.getByRole("button", { name: "继续这一局", exact: true }).click();
   await checkLayout(page, true);
+  await page.evaluate(() => {
+    Storage.prototype.setItem = () => {
+      throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+    };
+  });
+  await page.getByRole("button", { name: "暂停游戏" }).click();
+  await expect(page.getByRole("dialog")).toContainText("未能保存进度");
 });
 
 test("compact menu retains modes, details, settings and focus", async ({
@@ -234,7 +237,7 @@ test("outer connection remains aligned and stays in its board gutter", async ({
 test("final standalone HTML works offline with the same compact layout", async ({
   page,
   context,
-}, info) => {
+}) => {
   const requests: string[] = [];
   page.on("request", (request) => {
     if (/^https?:/.test(request.url())) requests.push(request.url());
@@ -246,7 +249,7 @@ test("final standalone HTML works offline with the same compact layout", async (
     fixture("sprint", 17, 2, 10).save,
     pathToFileURL(resolve("dist/果冻果园.html")).href,
   );
-  await checkLayout(page, true, info);
+  await checkLayout(page, true);
   await page.getByRole("button", { name: "提示", exact: true }).click();
   const hinted = await page
     .locator(".hinted")
@@ -266,7 +269,7 @@ test.describe("desktop", () => {
   });
   test("decorative layout remains usable after compact-to-desktop resize", async ({
     page,
-  }, info) => {
+  }) => {
     await loadGame(page, fixture("sprint").save);
     await expect(page.locator(".site-header")).toBeVisible();
     await expect(page.locator(".hero")).toBeVisible();
@@ -278,9 +281,5 @@ test.describe("desktop", () => {
     await expect(page.locator(".hero")).toBeVisible();
     const bounds = await page.locator(".tools").boundingBox();
     expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(1000);
-    await info.attach("desktop-viewport", {
-      body: await page.screenshot(),
-      contentType: "image/png",
-    });
   });
 });

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classicLevel } from "../src/classic-levels";
-import { LEVELS, makeLayout } from "../src/engine";
+import { classicLevel } from "../../../src/classic-levels";
+import { LEVELS, makeLayout } from "../../../src/engine";
 
 test("classic presets preserve geometry independently of journey content", () => {
   for (const mode of ["free", "sprint"] as const) {
