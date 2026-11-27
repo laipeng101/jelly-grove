@@ -1,7 +1,7 @@
 import "./style.css";
 import "./compact.css";
 import { initJourneyView } from "./journey/view";
-import { classicLevel } from "./classic-levels";
+import { classicLevel, SPRINT_DURATION_MS } from "./classic-levels";
 import { observePlayLayout } from "./play-layout";
 import { offlineDownloadNote } from "./offline";
 import {
@@ -28,12 +28,14 @@ import {
   PAIR_POINTS,
   SPRINT_CLEAR_BONUS,
   advanceGame,
+  comboTimeLeft,
   commitMatch,
   reconcileGame,
   rememberMove,
   repairBoard,
 } from "./game";
 import {
+  downloadProgressFile,
   loadSave,
   writeSave,
   parseSave,
@@ -63,6 +65,8 @@ let keyboardInput = false;
 let pendingClicks: { point: Point; fruit: number }[] = [];
 let hintTimer = 0;
 let storageOK = true;
+let saveRecovery: { warning: string; rawBackup?: string } | null = null;
+let importRevision = 0;
 const hudCache = new Map<string, string>();
 function hudHTML(id: string, html: string) {
   if (hudCache.get(id) !== html) {
@@ -112,16 +116,14 @@ function newGame(mode: Mode, level = 1, difficulty = 1) {
     bestCombo: 0,
     juice: 0,
     fever: 0,
-    lastMatch: -1,
+    lastMatch: 0,
     assists: 0,
     elapsed: 0,
-    timeLeft: 120000,
+    timeLeft: SPRINT_DURATION_MS,
     round: 1,
     phase: "playing",
     history: [],
   };
-  // A negative match timestamp is only transient; saved snapshots use zero.
-  g.lastMatch = 0;
   data.mode = mode;
   selected = null;
   hintPair = [];
@@ -134,16 +136,27 @@ function newGame(mode: Mode, level = 1, difficulty = 1) {
   save();
   render();
 }
-function save() {
+function saveStatus() {
+  if (storageOK) return "进度已自动保存";
+  if (saveRecovery) return "自动保存已暂停 · 请先处理原进度";
+  return "无法自动保存 · 请导出进度";
+}
+function save(replaceOriginal = false) {
   data.sessions[g.mode] = g;
   data.mode = g.mode;
-  const ok = writeSave(data);
+  const ok = (replaceOriginal || !saveRecovery) && writeSave(data);
+  if (ok) saveRecovery = null;
   storageOK = ok;
   const el = $("save-label");
   if (el) {
-    el.textContent = ok ? "进度已自动保存" : "存储不可用 · 请导出进度";
+    el.textContent = saveStatus();
     el.classList.toggle("save-error", !ok);
   }
+  const pauseStatus = $("pause-save");
+  if (pauseStatus)
+    pauseStatus.textContent = ok
+      ? "进度已保存。"
+      : "进度暂未保存。你可以在设置中导出进度。";
   return ok;
 }
 function remember() {
@@ -207,10 +220,10 @@ function render() {
   const l = config(),
     chapter = CHAPTERS[l.chapter];
   document.body.classList.toggle("deep-grove", g.board.length > 6);
-  app.innerHTML = `<header class="site-header"><a class="brand" href="#" aria-label="果冻果园 · 选择关卡"><span class="brand-mark">${icon("leaf")}</span><span>果冻果园<small>JELLY GROVE</small></span></a><div class="header-right"><span class="save-status"><i></i><span id="save-label" class="${storageOK ? "" : "save-error"}">${storageOK ? "进度已自动保存" : "存储不可用 · 请导出进度"}</span></span><button class="icon-btn" data-action="sound" aria-label="${data.settings.sound ? "关闭音效" : "开启音效"}">${icon(data.settings.sound ? "sound" : "mute")}</button><button class="icon-btn" data-action="help" aria-label="玩法说明">${icon("help")}</button><button class="icon-btn" data-action="settings" aria-label="设置">${icon("settings")}</button></div></header>
+  app.innerHTML = `<header class="site-header"><a class="brand" href="#" aria-label="果冻果园 · 选择关卡"><span class="brand-mark">${icon("leaf")}</span><span>果冻果园<small>JELLY GROVE</small></span></a><div class="header-right"><span class="save-status"><i></i><span id="save-label" class="${storageOK ? "" : "save-error"}">${saveStatus()}</span></span><button class="icon-btn" data-action="sound" aria-label="${data.settings.sound ? "关闭音效" : "开启音效"}">${icon(data.settings.sound ? "sound" : "mute")}</button><button class="icon-btn" data-action="help" aria-label="玩法说明">${icon("help")}</button><button class="icon-btn" data-action="settings" aria-label="设置">${icon("settings")}</button></div></header>
   <main class="page"><section class="hero"><div><div class="eyebrow"><span></span> YOUR LITTLE POCKET OF JOY</div><h1>连起一点<span>甜。</span><svg class="title-swish" viewBox="0 0 116 16"><path d="M3 10Q58 0 111 8M22 15Q65 7 92 12"/></svg></h1><p>不赶时间，让小小的快乐，刚好相遇。</p></div><div class="hero-art" aria-hidden="true"><span class="art-spark s1">✧</span><span class="art-spark s2">✳</span><div class="floating-fruit peach">${fruitSVG(5)}</div><div class="floating-fruit lime">${fruitSVG(3)}</div><div class="floating-fruit berry">${fruitSVG(1)}</div><span class="art-caption">freshly picked happiness</span><svg class="art-loop" viewBox="0 0 310 125"><path d="M8 88C50 123 274 124 296 54M265 58l31-4-10 25"/></svg></div></section>
-  <div class="mode-row"><nav class="mode-tabs" aria-label="游戏模式">${(["journey", "free", "sprint"] as Mode[]).map((m) => `<button data-mode="${m}" class="mode-tab ${g.mode === m ? "active" : ""}" aria-pressed="${g.mode === m}">${icon(m === "journey" ? "leaf" : m === "free" ? "infinity" : "clock")}${labels[m]}${m === "journey" ? "<span>24 关</span>" : ""}</button>`).join("")}<a class="mode-tab" href="?play=lab">新关卡试玩</a></nav><span class="mode-note">${g.mode === "sprint" ? "一点心跳，也是一点快乐。" : "慢慢来，好事会相遇。"} ${icon("heart")}</span></div>
-  <div class="game-layout"><aside class="left-column"><section class="journey-card"><div class="overline">${g.mode === "journey" ? "YOUR LITTLE JOURNEY" : "MAKE IT YOURS"}</div><div class="section-label">${icon(g.mode === "journey" ? "leaf" : "infinity")}<h2>${g.mode === "journey" ? chapter.name : g.mode === "free" ? "随心开一盘" : "一杯的时间"}</h2></div><p>${g.mode === "journey" ? chapter.description : g.mode === "free" ? "没有终点，没有催促。\n只需要享受每一次相遇。" : "限时 120 秒。连消加分，缤纷时刻得分翻倍。"}</p>${
+  <div class="mode-row"><nav class="mode-tabs" aria-label="游戏模式">${(["journey", "free", "sprint"] as Mode[]).map((m) => `<button data-mode="${m}" class="mode-tab ${g.mode === m ? "active" : ""}" aria-pressed="${g.mode === m}">${icon(m === "journey" ? "leaf" : m === "free" ? "infinity" : "clock")}${labels[m]}${m === "journey" ? `<span>${LEVELS.length} 关</span>` : ""}</button>`).join("")}<a class="mode-tab" href="?play=lab">流转送达</a></nav><span class="mode-note">${g.mode === "sprint" ? "一点心跳，也是一点快乐。" : "慢慢来，好事会相遇。"} ${icon("heart")}</span></div>
+  <div class="game-layout"><aside class="left-column"><section class="journey-card"><div class="overline">${g.mode === "journey" ? "YOUR LITTLE JOURNEY" : "MAKE IT YOURS"}</div><div class="section-label">${icon(g.mode === "journey" ? "leaf" : "infinity")}<h2>${g.mode === "journey" ? chapter.name : g.mode === "free" ? "随心开一盘" : "一杯的时间"}</h2></div><p>${g.mode === "journey" ? chapter.description : g.mode === "free" ? "没有终点，没有催促。\n只需要享受每一次相遇。" : `限时 ${SPRINT_DURATION_MS / 1000} 秒。连消加分，缤纷时刻得分翻倍。`}</p>${
     g.mode === "journey"
       ? `<div class="chapter-progress"><span>CHAPTER 0${l.chapter + 1}</span><span>${data.stars.slice(l.chapter * 6, l.chapter * 6 + 6).filter((x) => x > 0).length} / 6</span></div><div class="level-mini">${LEVELS.slice(
           l.chapter * 6,
@@ -226,14 +239,14 @@ function render() {
       : `<div class="difficulty-label">当前难度 <strong>${["轻松", "标准", "进阶"][g.difficulty]}</strong></div><button class="text-button" data-action="mode-options">调整${g.mode === "free" ? "难度" : "挑战"} ${icon("arrow")}</button>`
   }</section>
   <section class="tip-card"><span class="tiny-spark">✧</span><span class="overline">LITTLE FIELD NOTES</span><h3>${l.gravity ? "落下，也会有新惊喜" : l.pattern === "stones" ? "给相遇绕一点弯" : "两次转弯，刚好遇见"}</h3><div class="route-doodle">${fruitSVG(1)}<svg viewBox="0 0 130 46"><path d="M4 32H37V10H91V32H125"/><circle cx="4" cy="32" r="3"/><circle cx="125" cy="32" r="3"/></svg>${fruitSVG(1)}</div><p>${l.gravity ? "这一章的水果会向下落。\n每次消除后，再看一眼新布局。" : l.pattern === "stones" ? "小石头不能穿过，也不能消除。\n试试空隙，或棋盘外沿。" : "相同水果，最多转两次弯。\n空白处和棋盘外沿，都可以走。"}</p><button class="text-button" data-action="help">玩法小抄 ${icon("arrow")}</button></section></aside>
-  <section class="game-card" aria-label="连连看游戏"><div class="game-card-top"><div class="level-heading"><button class="compact-only compact-mode" data-action="modes" aria-label="切换游戏模式">${labels[g.mode]} ▾</button><span class="level-badge">${g.mode === "journey" ? `LEVEL ${String(g.level).padStart(2, "0")}` : g.mode === "free" ? `ROUND ${String(g.round).padStart(2, "0")}` : "120 SECONDS"}</span><button class="board-selector" data-action="${g.mode === "journey" ? "levels" : "mode-options"}" aria-label="${g.mode === "journey" ? "选择关卡" : "调整难度"}"><h2><span class="full-level-name">${l.name}</span><span class="compact-only">${g.mode === "journey" ? `第 ${g.level} 关` : ["轻松", "标准", "进阶"][g.difficulty]}</span></h2>${icon("arrow")}</button></div><div class="board-top-actions"><button class="compact-only compact-more" data-action="details" aria-label="本局详情与设置">更多</button><span class="rule-tag">${l.gravity ? "↓ 下落" : l.pattern === "stones" ? "◇ 石径" : "✧ 经典"}${g.mode !== "journey" ? " · " + ["轻松", "标准", "进阶"][g.difficulty] : ""}</span><button class="icon-btn pause-btn" data-action="pause" aria-label="${g.phase === "playing" ? "暂停游戏" : "查看收获"}">${icon(g.phase === "playing" ? "pause" : "arrow")}</button></div></div>
+  <section class="game-card" aria-label="连连看游戏"><div class="game-card-top"><div class="level-heading"><button class="compact-only compact-mode" data-action="modes" aria-label="切换游戏模式">${labels[g.mode]} ▾</button><span class="level-badge">${g.mode === "journey" ? `LEVEL ${String(g.level).padStart(2, "0")}` : g.mode === "free" ? `ROUND ${String(g.round).padStart(2, "0")}` : `${SPRINT_DURATION_MS / 1000} 秒`}</span><button class="board-selector" data-action="${g.mode === "journey" ? "levels" : "mode-options"}" aria-label="${g.mode === "journey" ? "选择关卡" : "调整难度"}"><h2><span class="full-level-name">${l.name}</span><span class="compact-only">${g.mode === "journey" ? `第 ${g.level} 关` : ["轻松", "标准", "进阶"][g.difficulty]}</span></h2>${icon("arrow")}</button></div><div class="board-top-actions"><button class="compact-only compact-more" data-action="details" aria-label="本局详情与设置">更多</button><span class="rule-tag">${l.gravity ? "↓ 下落" : l.pattern === "stones" ? "◇ 石径" : "✧ 经典"}${g.mode !== "journey" ? " · " + ["轻松", "标准", "进阶"][g.difficulty] : ""}</span><button class="icon-btn pause-btn" data-action="pause" aria-label="${g.phase === "playing" ? "暂停游戏" : "查看收获"}">${icon(g.phase === "playing" ? "pause" : "arrow")}</button></div></div>
   <div class="score-strip"><div><span>${g.mode === "sprint" ? "剩余时间" : "本局得分"}</span><strong id="primary-stat">${g.mode === "sprint" ? time(g.timeLeft) : format(g.score)}</strong></div><div class="score-divider"></div><div><span>${g.mode === "sprint" ? "本局得分" : "剩余水果"}</span><strong id="secondary-stat">${g.mode === "sprint" ? format(g.score) : `${remaining(g.board)}<small> 对</small>`}</strong></div><div class="compact-only compact-objective"><span>${g.mode === "journey" ? "连消目标" : g.mode === "sprint" ? "剩余水果" : "累计消除"}</span><strong id="compact-objective"></strong></div><div class="combo-stat"><span>最佳连消</span><strong id="best-combo">${g.bestCombo}<small> 连</small></strong></div></div>
   <div class="round-objectives" id="round-objectives" aria-label="本局目标"></div>
-  <div class="play-meters"><div class="combo-meter"><span id="combo-label">连消 · 慢慢找也没关系</span><div class="meter-track"><i id="combo-window"></i></div></div><div class="mini-juice"><span id="mini-juice-label">缤纷蓄能 0%</span><div class="meter-track"><i id="mini-juice-fill"></i></div></div></div>
+  <div class="play-meters"><div class="combo-meter"><span id="combo-label">连消 · 慢慢找也没关系</span><div class="meter-track"><i id="combo-window"></i></div></div><div class="mini-juice"><span id="mini-juice-label">果汁进度 0%</span><div class="meter-track"><i id="mini-juice-fill"></i></div></div></div>
   <div class="board-viewport" id="board-viewport" role="region" aria-label="棋盘区域"><div class="board-shell" id="board-shell"><div class="board" id="board" role="group" aria-label="水果棋盘"></div><svg id="connections" class="connections" aria-hidden="true"></svg><div class="particles" id="particles" aria-hidden="true"></div><div id="board-announcement" class="board-announcement" aria-live="polite"></div></div></div>
   <div class="board-caption"><span id="play-caption">${g.mode === "journey" && g.level === 1 ? "点两颗相同水果，最多两弯，可绕外沿。" : "找到一对相同的水果，连起好心情。"}</span><span class="combo-badge" id="combo-badge"></span><div id="play-toast" class="play-toast" role="status"></div></div>
   <div class="tools"><button data-action="hint" class="tool-button" title="标出一对可连接的水果（H）">${icon("hint")}<span>提示<small>找点灵感</small></span><kbd>H</kbd></button><button data-action="shuffle" class="tool-button" title="重新排列剩余水果（S）">${icon("shuffle")}<span>洗牌<small>换个心情</small></span><kbd>S</kbd></button><button data-action="undo" class="tool-button" id="undo-button" title="撤销上一步（Z）">${icon("undo")}<span>撤销<small>再想一步</small></span><kbd>Z</kbd></button></div></section>
-  <aside class="right-column"><section class="juice-card"><div class="overline">A LITTLE EXTRA SWEET</div><h2>果汁蓄能</h2><div class="juice-visual"><span class="juice-spark a">✦</span><span class="juice-spark b">✧</span><div class="juice-jar"><div class="juice-water" id="juice-water"><i></i><i></i><i></i></div><span class="jar-face"><i></i><i></i><b>⌣</b></span><span class="jar-shine"></span><span class="jar-tick t1"></span><span class="jar-tick t2"></span><span class="jar-tick t3"></span><span class="jar-fruit">${fruitSVG(1)}</span></div><span class="juice-percent" id="juice-percent">${g.juice}<small>%</small></span></div><div class="juice-description" id="juice-description">蓄满后得分翻倍，持续 ${FEVER_DURATION_MS / 1000} 秒</div><div class="juice-track"><i id="juice-track-fill"></i></div></section>
+  <aside class="right-column"><section class="juice-card"><div class="overline">A LITTLE EXTRA SWEET</div><h2>果汁进度</h2><div class="juice-visual"><span class="juice-spark a">✦</span><span class="juice-spark b">✧</span><div class="juice-jar"><div class="juice-water" id="juice-water"><i></i><i></i><i></i></div><span class="jar-face"><i></i><i></i><b>⌣</b></span><span class="jar-shine"></span><span class="jar-tick t1"></span><span class="jar-tick t2"></span><span class="jar-tick t3"></span><span class="jar-fruit">${fruitSVG(1)}</span></div><span class="juice-percent" id="juice-percent">${g.juice}<small>%</small></span></div><div class="juice-description" id="juice-description">蓄满后得分翻倍，持续 ${FEVER_DURATION_MS / 1000} 秒</div><div class="juice-track"><i id="juice-track-fill"></i></div></section>
   <section class="harvest-card"><div class="harvest-title">${icon("star")}<h3>${g.mode === "journey" ? "这一关的小收获" : "留下你的高光"}</h3></div><div id="star-objectives" class="star-objectives"></div><div class="fruit-friends">${fruitSVG(2)}${fruitSVG(1)}${fruitSVG(3)}</div><p>每一颗，都有自己的甜。</p></section></aside></div>
   <footer><span>${icon("leaf")}一座随时欢迎你的小果园</span><span>无需赶路 · 自动存档 · 随时回来</span><button class="text-button" data-action="restart">重新开始 ${icon("undo")}</button></footer></main><div id="toast" class="toast" role="status"></div><div id="modal-root"></div><input type="file" id="import-file" accept="application/json,.json" hidden/>`;
   renderBoard();
@@ -325,7 +338,8 @@ function updateHUD() {
       ? `${config().target}<small> 连</small>`
       : `${g.mode === "sprint" ? remaining(g.board) : g.cleared}<small> 对</small>`;
   $("best-combo").innerHTML = `${g.bestCombo}<small> 连</small>`;
-  const comboLive = g.combo > 0 && g.elapsed - g.lastMatch < COMBO_WINDOW;
+  const comboRemaining = comboTimeLeft(g);
+  const comboLive = g.combo > 0 && comboRemaining >= 0;
   $("combo-badge").textContent = comboLive
     ? `${g.combo} 连消${g.combo > 1 ? " ✧" : ""}`
     : "";
@@ -349,13 +363,13 @@ function updateHUD() {
         (btn.dataset.action === "undo" && !g.history.length);
     });
   $("combo-label").textContent = comboLive
-    ? `${g.combo} 连消 · ${((COMBO_WINDOW - (g.elapsed - g.lastMatch)) / 1000).toFixed(1)}s`
+    ? `${g.combo} 连消 · ${(comboRemaining / 1000).toFixed(1)} 秒`
     : "当前连消 0";
   $("combo-window").style.width =
-    `${comboLive ? Math.max(0, 1 - (g.elapsed - g.lastMatch) / COMBO_WINDOW) * 100 : 0}%`;
+    `${comboLive ? (comboRemaining / COMBO_WINDOW) * 100 : 0}%`;
   $("mini-juice-label").textContent = fever
     ? `缤纷时刻 ×2 · ${(g.fever / 1000).toFixed(1)}s`
-    : `缤纷蓄能 ${Math.floor(g.juice)}%`;
+    : `果汁进度 ${Math.floor(g.juice)}%`;
   $("mini-juice-fill").style.width = `${fever ? (g.fever / FEVER_DURATION_MS) * 100 : g.juice}%`;
   hudHTML(
     "round-objectives",
@@ -727,6 +741,7 @@ function action(a: string) {
 }
 function openModal(kind: string, html: string, wide = false) {
   if (kind !== "result" && syncTime()) return;
+  importRevision++;
   pendingClicks = [];
   if (!modalKind) previousFocus = document.activeElement as HTMLElement;
   if (kind !== "result") stopAudio();
@@ -749,6 +764,7 @@ function openModal(kind: string, html: string, wide = false) {
     ?.focus({ preventScroll: true });
 }
 function closeModal() {
+  importRevision++;
   $("modal-root").innerHTML = "";
   modalKind = "";
   paused = false;
@@ -786,7 +802,7 @@ function bind(id: string, fn: () => void) {
 function showModes() {
   openModal(
     "modes",
-    `<h2 id="dialog-title">选择游戏模式</h2><p>各模式分别保存进度，随时回来继续。</p><div class="compact-menu">${(["journey", "free", "sprint"] as Mode[]).map((m) => `<button class="secondary-button" data-choose-mode="${m}">${labels[m]}${g.mode === m ? " · 当前" : ""}</button>`).join("")}<a class="secondary-button" href="?play=lab">新关卡试玩 · 流转送达</a></div>`,
+    `<h2 id="dialog-title">选择游戏模式</h2><p>各模式分别保存进度，随时回来继续。</p><div class="compact-menu">${(["journey", "free", "sprint"] as Mode[]).map((m) => `<button class="secondary-button" data-choose-mode="${m}">${labels[m]}${g.mode === m ? " · 当前" : ""}</button>`).join("")}<a class="secondary-button" href="?play=lab">流转送达</a></div>`,
   );
   document
     .querySelectorAll<HTMLButtonElement>("[data-choose-mode]")
@@ -800,7 +816,7 @@ function showDetails() {
   const l = config();
   openModal(
     "details",
-    `<h2 id="dialog-title">本局详情</h2><p>${labels[g.mode]} · ${l.name}<br>${l.gravity ? "水果向下落 · " : ""}${l.pattern === "stones" ? "石头不可穿越 · " : ""}最多两次转弯，可沿棋盘外侧连线。</p><dl class="round-details"><div><dt>本局最佳连消</dt><dd>${g.bestCombo} 连</dd></div><div><dt>当前盘数</dt><dd>第 ${g.round} 盘</dd></div>${g.mode === "journey" ? `<div><dt>关卡目标</dt><dd>清盘 · 不用辅助 · ${l.target} 连消</dd></div><div><dt>辅助状态</dt><dd>${g.assists ? "本局已用辅助" : "尚未使用辅助"}</dd></div>` : `<div><dt>历史最高分</dt><dd>${format(g.mode === "sprint" ? data.best : data.freeBest)}</dd></div><div><dt>清盘奖励</dt><dd>${g.mode === "sprint" ? `+${SPRINT_CLEAR_BONUS} 分，自动续盘` : "清盘后可再来一盘"}</dd></div>`}<div><dt>进度保存</dt><dd>${storageOK ? "已自动保存" : "存储不可用，请导出进度"}</dd></div></dl><div class="compact-menu"><button class="secondary-button" id="details-settings">音效与设置</button><button class="secondary-button" id="details-help">玩法说明</button><button class="secondary-button" id="details-restart">重新开始</button><a class="secondary-button" href="?play=lab">新关卡试玩 · 流转送达</a></div>`,
+    `<h2 id="dialog-title">本局详情</h2><p>${labels[g.mode]} · ${l.name}<br>${l.gravity ? "水果向下落 · " : ""}${l.pattern === "stones" ? "石头不可穿越 · " : ""}最多两次转弯，可沿棋盘外侧连线。</p><dl class="round-details"><div><dt>本局最佳连消</dt><dd>${g.bestCombo} 连</dd></div><div><dt>当前盘数</dt><dd>第 ${g.round} 盘</dd></div>${g.mode === "journey" ? `<div><dt>关卡目标</dt><dd>清盘 · 不用辅助 · ${l.target} 连消</dd></div><div><dt>辅助状态</dt><dd>${g.assists ? "本局已用辅助" : "尚未使用辅助"}</dd></div>` : `<div><dt>历史最高分</dt><dd>${format(g.mode === "sprint" ? data.best : data.freeBest)}</dd></div><div><dt>清盘奖励</dt><dd>${g.mode === "sprint" ? `+${SPRINT_CLEAR_BONUS} 分，自动续盘` : "清盘后可再来一盘"}</dd></div>`}<div><dt>进度保存</dt><dd>${saveStatus()}</dd></div></dl><div class="compact-menu"><button class="secondary-button" id="details-settings">音效与设置</button><button class="secondary-button" id="details-help">玩法说明</button><button class="secondary-button" id="details-restart">重新开始</button><a class="secondary-button" href="?play=lab">流转送达</a></div>`,
   );
   bind("details-settings", showSettings);
   bind("details-help", showHelp);
@@ -815,23 +831,22 @@ function showPause() {
     "pause",
     `<div class="modal-illustration">${fruitSVG(5)}</div><h2 id="dialog-title">已暂停</h2><p id="pause-save"></p><div class="pause-stats"><span>得分 <b>${format(g.score)}</b></span><span>${g.mode === "sprint" ? "剩余" : "已玩"} <b>${time(g.mode === "sprint" ? g.timeLeft : g.elapsed)}</b></span></div><button id="resume" class="primary-button">${icon("play")} 继续这一局</button><button id="pause-restart" class="secondary-button">重新开始</button>`,
   );
-  const saveStatus = $("pause-save");
-  if (!saveStatus) return;
-  saveStatus.textContent = save() ? "进度已保存。" : "未能保存进度，请在设置中导出进度。";
+  if (!$("pause-save")) return;
+  save();
   bind("resume", closeModal);
   bind("pause-restart", confirmRestart);
 }
 function showHelp() {
   openModal(
     "help",
-    `<h2 id="dialog-title">玩法说明</h2><div class="help-example">${fruitSVG(1)}<svg viewBox="0 0 160 70"><path d="M5 55H48V15H112V55H155"/><circle cx="48" cy="15" r="8"/><circle cx="112" cy="15" r="8"/><text x="48" y="18">1</text><text x="112" y="18">2</text></svg>${fruitSVG(1)}</div><div class="help-list"><div><b>01</b><p><strong>找到一对同样的水果</strong>依次点选。连线最多两次转弯，经过的地方必须为空，也能绕过棋盘外沿。</p></div><div><b>02</b><p><strong>连消加分</strong>${COMBO_WINDOW / 1000} 秒内再消除一对，连消次数加一。每对 ${PAIR_POINTS} 分，连消从第二对起每次多加 ${COMBO_STEP_POINTS} 分，上限 ${MAX_COMBO_BONUS} 分。</p></div><div><b>03</b><p><strong>果汁蓄满，进入缤纷时刻</strong>消除给果汁充能，连消充得更多。蓄满后得分翻倍，持续 ${FEVER_DURATION_MS / 1000} 秒。暂停时停止计时。</p></div><div><b>04</b><p><strong>提示、洗牌与撤销</strong>手动使用会失去“不用辅助”星。没有可连接的水果会自动洗牌，不影响星级。石头不能穿过，下落关会在消除后向下补齐。</p></div></div><div class="help-foot">${icon("star")}清盘一星 · 不用辅助一星 · 达到关卡连消目标一星<br><span>键盘：方向键移动，Enter 选中 · H 提示 · S 洗牌 · Z 撤销 · 空格暂停</span></div><button id="help-ok" class="primary-button">返回棋盘 ${icon("arrow")}</button>`,
+    `<h2 id="dialog-title">玩法说明</h2><div class="help-example">${fruitSVG(1)}<svg viewBox="0 0 160 70"><path d="M5 52H80V18H155"/><circle cx="80" cy="52" r="8"/><circle cx="80" cy="18" r="8"/><text x="80" y="55">1</text><text x="80" y="21">2</text></svg>${fruitSVG(1)}</div><div class="help-list"><div><b>01</b><p><strong>找到一对同样的水果</strong>依次点选。连线最多两次转弯，经过的地方必须为空，也能绕过棋盘外沿。</p></div><div><b>02</b><p><strong>连消加分</strong>${COMBO_WINDOW / 1000} 秒内再消除一对，连消次数加一。每对 ${PAIR_POINTS} 分，连消从第二对起每次多加 ${COMBO_STEP_POINTS} 分，上限 ${MAX_COMBO_BONUS} 分。</p></div><div><b>03</b><p><strong>果汁蓄满，进入缤纷时刻</strong>消除给果汁充能，连消充得更多。蓄满后得分翻倍，持续 ${FEVER_DURATION_MS / 1000} 秒。暂停时停止计时。</p></div><div><b>04</b><p><strong>提示、洗牌与撤销</strong>手动使用会失去“不用辅助”星。没有可连接的水果会自动洗牌，不影响星级。石头不能穿过，下落关会在消除后向下补齐。</p></div></div><div class="help-foot">${icon("star")}清盘一星 · 不用辅助一星 · 达到关卡连消目标一星<br><span>键盘：方向键移动，Enter 选中 · H 提示 · S 洗牌 · Z 撤销 · 空格暂停</span></div><button id="help-ok" class="primary-button">返回棋盘 ${icon("arrow")}</button>`,
   );
   bind("help-ok", closeModal);
 }
 function showSettings() {
   openModal(
     "settings",
-    `<h2 id="dialog-title">设置</h2><div class="setting-row"><div><strong>音效</strong></div><button role="switch" aria-checked="${data.settings.sound}" id="setting-sound" class="switch ${data.settings.sound ? "on" : ""}" aria-label="果园音效"><i></i></button></div><div class="setting-row volume-row"><label for="setting-volume"><strong>音效音量</strong><span>松手试听</span></label><div class="volume-control"><input id="setting-volume" type="range" min="0" max="100" step="1" value="${Math.round(data.settings.volume * 100)}" aria-label="音效音量" ${data.settings.sound ? "" : "disabled"}><output id="volume-value" for="setting-volume">${Math.round(data.settings.volume * 100)}%</output></div></div><div class="setting-row"><div><strong>动效</strong><span>关闭后减少弹跳、粒子和闪烁</span></div><button role="switch" aria-checked="${data.settings.motion}" id="setting-motion" class="switch ${data.settings.motion ? "on" : ""}" aria-label="动效"><i></i></button></div><div class="storage-note">${icon("leaf")}进度保存在当前浏览器，包括三个模式各自的棋局。清理浏览器数据会移除存档；换设备前可以导出备份。</div><div class="backup-buttons"><button id="export" class="secondary-button">${icon("download")} 导出进度</button><button id="import" class="secondary-button">${icon("upload")} 导入进度</button></div>${offlineDownloadNote}`,
+    `<h2 id="dialog-title">设置</h2><div class="setting-row"><div><strong>音效</strong></div><button role="switch" aria-checked="${data.settings.sound}" id="setting-sound" class="switch ${data.settings.sound ? "on" : ""}" aria-label="果园音效"><i></i></button></div><div class="setting-row volume-row"><label for="setting-volume"><strong>音效音量</strong><span>松手试听</span></label><div class="volume-control"><input id="setting-volume" type="range" min="0" max="100" step="1" value="${Math.round(data.settings.volume * 100)}" aria-label="音效音量" ${data.settings.sound ? "" : "disabled"}><output id="volume-value" for="setting-volume">${Math.round(data.settings.volume * 100)}%</output></div></div><div class="setting-row"><div><strong>动效</strong><span>关闭后减少弹跳、粒子和闪烁</span></div><button role="switch" aria-checked="${data.settings.motion}" id="setting-motion" class="switch ${data.settings.motion ? "on" : ""}" aria-label="动效"><i></i></button></div><div class="storage-note">${icon("leaf")}这里导入和导出的是果园漫游、自由练习和限时鲜榨的进度。换设备或清理浏览器数据前，可以先导出备份。</div><div class="backup-buttons"><button id="export" class="secondary-button">${icon("download")} 导出进度</button><button id="import" class="secondary-button">${icon("upload")} 导入进度</button></div>${saveRecovery ? '<button id="recover-save" class="secondary-button">处理原进度</button>' : ""}${offlineDownloadNote}`,
   );
   const volumeSlider = $("setting-volume") as HTMLInputElement;
   volumeSlider.addEventListener("input", () => {
@@ -850,29 +865,65 @@ function showSettings() {
     });
   bind("export", () => {
     save();
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob),
-      a = document.createElement("a");
-    a.href = url;
-    a.download = `果冻果园-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast("已开始下载进度文件。");
+    try {
+      downloadProgressFile(
+        JSON.stringify(data),
+        `果冻果园-${new Date().toISOString().slice(0, 10)}.json`,
+      );
+      toast("已开始下载进度文件。");
+    } catch {
+      toast("无法下载进度文件，请重试。");
+    }
   });
   bind("import", () => $("import-file").click());
+  bind("recover-save", showSaveRecovery);
+}
+function showSaveRecovery() {
+  if (!saveRecovery) return;
+  const { rawBackup, warning } = saveRecovery;
+  openModal(
+    "save-recovery",
+    `<h2 id="dialog-title">无法加载原进度</h2>
+    <p>${warning}</p>
+    <p>你可以继续玩，自动保存会暂时关闭。要恢复自动保存，可以导入备份，或用当前进度替换原进度。</p>
+    ${rawBackup !== undefined ? '<button id="download-original" class="secondary-button">下载原进度</button>' : ""}
+    <p id="save-recovery-status" role="status"></p>
+    <button id="keep-playing" class="primary-button">继续玩</button>
+    <button id="replace-original" class="secondary-button">用当前进度替换</button>`,
+  );
+  bind("download-original", () => {
+    const status = $("save-recovery-status");
+    try {
+      downloadProgressFile(rawBackup!, "果冻果园-原进度.json");
+      status.textContent = "已开始下载原进度。";
+    } catch {
+      status.textContent = "无法下载原进度。原进度仍在，稍后可以重试。";
+    }
+  });
+  bind("keep-playing", closeModal);
+  bind("replace-original", () => {
+    if (save(true)) {
+      closeModal();
+      toast("已替换原进度，并恢复自动保存。");
+    } else {
+      $("save-recovery-status").textContent =
+        "无法保存当前进度。你可以在设置中导出一份备份。";
+    }
+  });
 }
 async function importProgress(e: Event) {
   const input = e.target as HTMLInputElement,
     file = input.files?.[0];
   if (!file) return;
   input.value = "";
+  const revision = ++importRevision;
   try {
-    const imported = parseSave(await readSaveFile(file, 2_000_000));
+    const text = await readSaveFile(file, 2_000_000);
+    if (revision !== importRevision) return;
+    const imported = parseSave(text);
     openModal(
       "import",
-      `<div class="modal-illustration">${fruitSVG(3)}</div><h2 id="dialog-title">导入进度？</h2><p>这份存档包含 ${imported.stars.filter((v) => v > 0).length} 个已通关关卡、${imported.stars.reduce((a, b) => a + b, 0)} 颗星。<br>导入会替换本机当前进度。</p><button id="confirm-import" class="primary-button">确认导入</button><button id="cancel-import" class="secondary-button">取消</button>`,
+      `<div class="modal-illustration">${fruitSVG(3)}</div><h2 id="dialog-title">导入进度？</h2><p>这份存档包含 ${imported.stars.filter((v) => v > 0).length} 个已通关关卡、${imported.stars.reduce((a, b) => a + b, 0)} 颗星。<br>导入会替换经典模式的进度，并应用文件中的共用音效、音量和动效设置。</p><button id="confirm-import" class="primary-button">确认导入</button><button id="cancel-import" class="secondary-button">取消</button>`,
     );
     bind("confirm-import", () => {
       const restored = imported.sessions[imported.mode];
@@ -882,18 +933,20 @@ async function importProgress(e: Event) {
       hintPair = [];
       busy = false;
       animation++;
-      if (!restored) newGame("journey");
+      if (!restored) newGame(imported.mode);
       else {
         g = restored;
         restoreCurrent();
       }
-      toast("已导入进度。");
+      if (saveRecovery) save(true);
+      toast(storageOK ? "已导入进度。" : "已加载进度，但无法自动保存。请保留导入的文件。");
     });
     bind("cancel-import", showSettings);
   } catch (error) {
+    if (revision !== importRevision) return;
     openModal(
       "import-error",
-      `<h2 id="dialog-title">无法导入这份进度</h2><p id="import-error-detail"></p><p>当前进度已保留。请在原模式重新导出进度后再试。</p><button id="import-error-settings" class="primary-button">返回设置</button>`,
+      `<h2 id="dialog-title">无法导入这份进度</h2><p id="import-error-detail"></p><p>当前进度已保留。请选择从经典模式设置导出的进度文件。</p><button id="import-error-settings" class="primary-button">返回设置</button>`,
     );
     if (modalKind !== "import-error") return;
     $("import-error-detail").textContent = error instanceof Error ? error.message : "未能读取这份存档。";
@@ -903,7 +956,7 @@ async function importProgress(e: Event) {
 function showLevels() {
   openModal(
     "levels",
-    `<div class="overline">24 LITTLE MOMENTS OF JOY</div><h2 id="dialog-title">你的小小果园漫游。</h2><p>收集的不是星星，是一颗接一颗的好心情。<br><span class="total-stars">${icon("star")} ${data.stars.reduce((a, b) => a + b, 0)} / 72</span></p><div class="chapter-grid">${CHAPTERS.map(
+    `<h2 id="dialog-title">选择果园漫游关卡</h2><p><span class="total-stars">${icon("star")} 已获 ${data.stars.reduce((a, b) => a + b, 0)} / ${LEVELS.length * 3} 颗星</span></p><div class="chapter-grid">${CHAPTERS.map(
       (c, i) =>
         `<section><div class="chapter-title"><b>0${i + 1}</b><span><strong>${c.name}</strong><small>${c.description}</small></span></div><div class="chapter-levels">${LEVELS.slice(
           i * 6,
@@ -969,9 +1022,21 @@ function showModeOptions(mode: Mode) {
     newGame("journey");
     return;
   }
+  const difficultyOptions = ["轻松", "标准", "进阶"].map((label, difficulty) => {
+    const level = classicLevel(mode, difficulty);
+    const feature = level.gravity
+      ? "有石头，水果会下落"
+      : level.pattern === "stones"
+        ? "有石头"
+        : level.pattern === "gaps" ? "棋盘有空位" : "完整棋盘";
+    return `<button data-difficulty="${difficulty}" class="difficulty-option ${difficulty === 1 ? "recommended" : ""}"><strong>${label}</strong><small>${level.kinds} 种水果 · ${feature}</small></button>`;
+  });
   openModal(
     "mode-options",
-    `<div class="modal-illustration">${fruitSVG(mode === "free" ? 3 : 2)}</div><div class="overline">${mode === "free" ? "JUST FOR THE JOY OF IT" : "FRESHLY SQUEEZED IN 120 SECONDS"}</div><h2 id="dialog-title">${mode === "free" ? "今天，想要几分甜？" : "来一杯，限时鲜榨。"}</h2><p>${mode === "free" ? "不限时、不催促，每一盘都是新的。" : "120 秒，尽情消除。清盘奖励 500 分，并自动进入新棋盘。"}<br>${g.mode === mode && g.phase === "playing" && g.cleared > 0 ? "开始新一局会替换本模式当前棋局。" : "各模式的当前棋局会分别保存。"}</p><div class="difficulty-options">${["轻松", "标准", "进阶"].map((s, i) => `<button data-difficulty="${i}" class="difficulty-option ${i === 1 ? "recommended" : ""}"><strong>${s}</strong><small>${mode === "sprint" ? ["4 种水果 · 经典", "6 种水果 · 留白", "9 种水果 · 石径"][i] : ["4 种水果 · 经典", "6 种水果 · 留白", "9 种水果 · 下落石径"][i]}</small>${i === 1 ? "<span>刚刚好</span>" : ""}</button>`).join("")}</div>`,
+    `<div class="modal-illustration">${fruitSVG(mode === "free" ? 3 : 2)}</div>
+    <h2 id="dialog-title">${labels[mode]}</h2>
+    <p>${mode === "free" ? "不限时，选一个难度开始。" : `在 ${SPRINT_DURATION_MS / 1000} 秒内尽量多消除水果。清盘加 ${SPRINT_CLEAR_BONUS} 分，并自动换下一盘。`}${g.mode === mode && g.phase === "playing" && g.cleared > 0 ? "<br>开始新局会替换当前棋局。" : ""}</p>
+    <div class="difficulty-options">${difficultyOptions.join("")}</div>`,
   );
   document
     .querySelectorAll<HTMLButtonElement>("[data-difficulty]")
@@ -1002,10 +1067,10 @@ function showResult() {
   const n = starsEarned(),
     journey = g.mode === "journey",
     sprint = g.mode === "sprint",
-    all = journey && g.level === 24;
+    all = journey && g.level === LEVELS.length;
   openModal(
     "result",
-    `<div class="result-fruits">${fruitSVG(3)}${fruitSVG(1)}${fruitSVG(2)}</div><div class="overline">${sprint ? "FRESHLY SQUEEZED. NICELY DONE." : all ? "A WHOLE SUMMER OF SWEETNESS" : "A LITTLE MOMENT, WELL SPENT."}</div><h2 id="dialog-title">${sprint ? "这一杯，收获满满。" : all ? "整个夏天，都甜了。" : "莓好相遇，收获完成！"}</h2><p>${sprint ? "时间刚好，快乐新鲜。下一杯会更甜吗？" : all ? "24 次小小冒险，串起了整座果园。\n随时回来，把喜欢的关卡再玩一遍。" : journey ? "又一片小小果园，被你点亮了。" : "没有白过的片刻，只有刚好的快乐。"}</p>${journey ? `<div class="result-stars">${stars(n)}</div>` : ""}<div class="result-stats"><div><small>本局得分</small><strong>${format(g.score)}</strong></div><div><small>最佳连消</small><strong>${g.bestCombo}<em> 连</em></strong></div><div><small>${sprint ? "收获水果" : "慢享时光"}</small><strong>${sprint ? g.cleared : time(g.elapsed)}${sprint ? "<em> 对</em>" : ""}</strong></div></div>${journey ? `<div class="result-reasons"><span class="yes">${icon("check")}完成消除</span><span class="${g.assists === 0 ? "yes" : ""}">${icon(g.assists === 0 ? "check" : "star")}不用辅助</span><span class="${g.bestCombo >= config().target ? "yes" : ""}">${icon(g.bestCombo >= config().target ? "check" : "star")}${config().target} 连消</span></div>` : `<div class="best-line">${icon("trophy")}历史最佳 ${format(sprint ? data.best : data.freeBest)}</div>`}<button id="result-next" class="primary-button">${journey ? (all ? "回到果园，重温快乐" : "下一关 · " + LEVELS[Math.min(g.level, 23)].name) : sprint ? "再鲜榨一杯" : "再来一盘，新鲜出发"} ${icon("arrow")}</button><button id="result-replay" class="secondary-button">${journey ? "再玩一次，摘更多星" : "调整难度"}</button>`,
+    `<div class="result-fruits">${fruitSVG(3)}${fruitSVG(1)}${fruitSVG(2)}</div><div class="overline">${sprint ? "FRESHLY SQUEEZED. NICELY DONE." : all ? "A WHOLE SUMMER OF SWEETNESS" : "A LITTLE MOMENT, WELL SPENT."}</div><h2 id="dialog-title">${sprint ? "这一杯，收获满满。" : all ? "整个夏天，都甜了。" : "莓好相遇，收获完成！"}</h2><p>${sprint ? "时间刚好，快乐新鲜。下一杯会更甜吗？" : all ? "果园漫游已全部通关，可以重玩喜欢的关卡。" : journey ? "又一片小小果园，被你点亮了。" : "没有白过的片刻，只有刚好的快乐。"}</p>${journey ? `<div class="result-stars">${stars(n)}</div>` : ""}<div class="result-stats"><div><small>本局得分</small><strong>${format(g.score)}</strong></div><div><small>最佳连消</small><strong>${g.bestCombo}<em> 连</em></strong></div><div><small>${sprint ? "收获水果" : "慢享时光"}</small><strong>${sprint ? g.cleared : time(g.elapsed)}${sprint ? "<em> 对</em>" : ""}</strong></div></div>${journey ? `<div class="result-reasons"><span class="yes">${icon("check")}完成消除</span><span class="${g.assists === 0 ? "yes" : ""}">${icon(g.assists === 0 ? "check" : "star")}不用辅助</span><span class="${g.bestCombo >= config().target ? "yes" : ""}">${icon(g.bestCombo >= config().target ? "check" : "star")}${config().target} 连消</span></div>` : `<div class="best-line">${icon("trophy")}历史最佳 ${format(sprint ? data.best : data.freeBest)}</div>`}<button id="result-next" class="primary-button">${journey ? (all ? "回到果园，重温快乐" : "下一关 · " + LEVELS[g.level].name) : sprint ? "再鲜榨一杯" : "再来一盘，新鲜出发"} ${icon("arrow")}</button><button id="result-replay" class="secondary-button">${journey ? "再玩一次，摘更多星" : "调整难度"}</button>`,
   );
   bind("result-next", () => {
     const { mode, level, difficulty, round } = g;
@@ -1119,6 +1184,7 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pagehide", () => {
   if (trialMode) return;
+  importRevision++;
   stopAudio();
   save();
 });
@@ -1162,11 +1228,12 @@ if (trialMode) initJourneyView(app);
 else {
   const loaded = loadSave();
   data = loaded.save;
+  if (loaded.warning !== null) saveRecovery = loaded;
   const saved = data.sessions[data.mode];
   if (saved) {
     g = saved;
     restoreCurrent();
   } else newGame("journey");
-  if (loaded.warning) setTimeout(() => toast(loaded.warning!), 250);
+  if (saveRecovery) showSaveRecovery();
   tick(performance.now());
 }

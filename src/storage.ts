@@ -5,7 +5,8 @@ import {
   canClearGeometry,
   type Board,
 } from "./engine";
-import { classicLevel } from "./classic-levels";
+import { classicLevel, SPRINT_DURATION_MS } from "./classic-levels";
+import { FEVER_DURATION_MS, UNDO_HISTORY_LIMIT } from "./game";
 export type Mode = "journey" | "free" | "sprint";
 export type Snapshot = {
   board: Board;
@@ -46,16 +47,28 @@ export function parseSaveJSON(raw: string): unknown {
   try {
     return JSON.parse(raw);
   } catch {
-    throw new Error("存档不是完整的 JSON 文件。");
+    throw new Error("这不是有效的进度文件。");
   }
 }
 
 export async function readSaveFile(file: File, maxBytes: number): Promise<string> {
-  if (file.size > maxBytes) throw new Error("存档文件太大，无法读取。");
+  if (file.size > maxBytes) throw new Error("进度文件太大，无法打开。");
   try {
     return await file.text();
   } catch {
     throw new Error("无法读取所选文件。");
+  }
+}
+
+export function downloadProgressFile(text: string, filename: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 }
 
@@ -143,7 +156,7 @@ function validSnapshot(s: Snapshot): boolean {
     s.combo <= s.bestCombo &&
     s.bestCombo <= s.cleared &&
     numeric(s.juice, 0, 100) &&
-    numeric(s.fever, 0, 10000) &&
+    numeric(s.fever, 0, FEVER_DURATION_MS) &&
     numeric(s.lastMatch)
   );
 }
@@ -161,7 +174,7 @@ function validGame(g: Game, mode: Mode): boolean {
     g.difficulty > 2 ||
     !["playing", "won", "lost"].includes(g.phase) ||
     !Array.isArray(g.history) ||
-    g.history.length > 20 ||
+    g.history.length > UNDO_HISTORY_LIMIT ||
     !g.history.every(
       (s) =>
         validSnapshot(s) &&
@@ -175,7 +188,7 @@ function validGame(g: Game, mode: Mode): boolean {
     !integer(g.round, 1) ||
     !integer(g.seed, 0, 0xffffffff) ||
     !numeric(g.elapsed) ||
-    !numeric(g.timeLeft, 0, 120000)
+    !numeric(g.timeLeft, 0, SPRINT_DURATION_MS)
   )
     return false;
   const l =
@@ -269,14 +282,26 @@ export function parseSave(raw: string): Save {
       throw new Error("棋局数据不完整，无法恢复这份存档。");
   return s;
 }
-export function loadSave(): { save: Save; warning: string | null } {
+export function loadSave():
+  | { save: Save; warning: null }
+  | { save: Save; warning: string; rawBackup?: string } {
+  let raw: string | null;
   try {
-    const raw = localStorage.getItem(KEY);
-    return { save: raw ? parseSave(raw) : emptySave(), warning: null };
+    raw = localStorage.getItem(KEY);
   } catch {
     return {
       save: emptySave(),
-      warning: "未能读取存档，这一局可以正常游玩。你可以在设置中导出新进度。",
+      warning: "浏览器暂时无法读取原来的进度。可以检查浏览器权限后再刷新。",
+    };
+  }
+  if (raw === null) return { save: emptySave(), warning: null };
+  try {
+    return { save: parseSave(raw), warning: null };
+  } catch {
+    return {
+      save: emptySave(),
+      warning: "原来的进度文件无法打开。你可以先下载一份备份。",
+      rawBackup: raw,
     };
   }
 }

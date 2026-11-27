@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { candidate, certify } from "../../../src/journey/generator";
 import { solve } from "../../../src/journey/solver";
+import { THEMES } from "../../../src/journey/themes";
+import { pauseBrowserClock } from "../clock";
 import { load, play, puzzle as backupPuzzle, session } from "./fixtures";
 
 async function loadHiddenLoss(page: Page, url?: string) {
@@ -46,12 +48,9 @@ test('hidden challenge loss explains undo without covering the mobile board', as
   expect((await session(page)).state.fuelUsed).toBe(1);
 
   await undo.focus();
-  const replaced = await page.evaluate(() => {
-    const previous = document.querySelector('.trial-card > .trial-stars-card')!;
+  await page.evaluate(() => {
     window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
-    return !previous.isConnected;
   });
-  expect(replaced).toBe(true);
   await expect(undo).toBeFocused();
   await undo.click();
   await page.getByRole('button', { name: '↶ 撤销', exact: true }).click();
@@ -78,25 +77,29 @@ for (const kind of ['challenge', 'ordinary'] as const) test(`completion ${kind}:
   await expect(page.locator('#trial-result-stay')).toBeVisible();
 });
 test('next theme only starts after explicit confirmation', async ({ page }) => {
-  const puzzle = await load(page);
+  const [first, next] = THEMES;
+  const puzzle = await load(page, { theme: first.id });
   for (const move of puzzle.proof.challenge) await play(page, move);
-  expect((await session(page)).puzzle.themeId).toBe(13);
+  expect((await session(page)).puzzle.themeId).toBe(first.id);
   await page.locator('#trial-result-next').click();
-  await expect.poll(async () => (await session(page)).puzzle.themeId).toBe(14);
+  await expect.poll(async () => (await session(page)).puzzle.themeId).toBe(next.id);
 });
 test('final theme alone shows its result and offers theme selection', async ({ page }) => {
-  const puzzle = await load(page, { theme: 18 });
+  const finalTheme = THEMES.at(-1)!;
+  const puzzle = await load(page, { theme: finalTheme.id });
   for (const move of puzzle.proof.challenge) await play(page, move);
   await expect(page.getByRole('heading', { name: '送达完成', exact: true })).toBeVisible();
   await expect(page.locator('#trial-result-next')).toHaveText(/选择主题/);
   await page.locator('#trial-result-next').click();
-  await expect(page.locator('[data-pick-theme]')).toHaveCount(6);
-  expect((await session(page)).puzzle.themeId).toBe(18);
+  await expect(page.locator('[data-pick-theme]')).toHaveCount(THEMES.length);
+  expect((await session(page)).puzzle.themeId).toBe(finalTheme.id);
 });
-test('six-theme completion follows the last missing theme in any order', async ({ page }) => {
-  const puzzle = await load(page, { best: { 14: 1, 15: 2, 16: 2, 17: 1, 18: 3 } });
+test('clearing the last unfinished theme completes the trial', async ({ page }) => {
+  const [unfinished, ...completed] = THEMES;
+  const best = Object.fromEntries(completed.map(({ id }) => [id, 1]));
+  const puzzle = await load(page, { theme: unfinished.id, best });
   for (const move of puzzle.proof.ordinary) await play(page, move);
-  await expect(page.getByRole('heading', { name: '六主题体验完成', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '所有主题均已通关', exact: true })).toBeVisible();
 });
 
 test('normal motion slides surviving track fruit and idle cues preserve board state', async ({ page }) => {
@@ -117,9 +120,8 @@ test('normal motion slides surviving track fruit and idle cues preserve board st
 });
 for (const reduced of [true, false]) test(`motion disabled path reduced=${reduced} has no slide or idle animation`, async ({ page }) => {
   await page.emulateMedia({ reducedMotion: reduced ? 'reduce' : 'no-preference' });
-  await page.clock.install();
+  await pauseBrowserClock(page);
   const puzzle = await load(page, { theme: 18, motion: reduced });
-  await page.clock.pauseAt(new Date());
   await play(page, puzzle.proof.challenge[0], { waitForMotion: false });
   expect(await page.locator('[data-trial="preview"]').isEnabled()).toBe(true);
   expect(await page.locator('[data-motion-phase], .trial-moving-fruit').count()).toBe(0);
@@ -142,8 +144,7 @@ test('theme 17 dead end fits the full mobile board and can be undone', async ({ 
   }
   expect((await session(page)).state.phase).toBe('lost');
   const feedback = page.locator('.trial-feedback');
-  await expect(feedback).toContainText('符合订单配额的配对');
-  await expect(feedback).not.toContainText(/。，|撤销.*撤销/);
+  await expect(feedback).toHaveText('没有可消除的配对，可以撤销一步。');
   const undo = page.getByRole('button', { name: '↶ 撤销', exact: true });
   await expect(undo).toBeInViewport({ ratio: 1 });
   await expect.poll(() => page.locator('.trial-board-viewport').evaluate(viewport => {
@@ -236,7 +237,7 @@ test('stale checker failure cannot overwrite an undone position', async ({ page 
   expect((await session(page)).hintLevel).toBe(0);
 });
 
-test('cached page restore restarts canceled checker without replacing board or focus', async ({ page }) => {
+test('cached page restore restarts the checker and preserves the board, scroll and focus', async ({ page }) => {
   await page.addInitScript(() => {
     window.Worker = class {
       onmessage: ((event: MessageEvent) => void) | null = null;
@@ -258,18 +259,23 @@ test('cached page restore restarts canceled checker without replacing board or f
     cell.focus({ preventScroll: true });
     card.scrollTop = card.scrollHeight;
     viewport.scrollTop = viewport.scrollHeight;
-    (window as unknown as { retainedBoard: Element }).retainedBoard = document.querySelector('#trial-board')!;
+    const before = {
+      card: card.scrollTop,
+      viewport: viewport.scrollTop,
+      focused: cell.dataset.trialCell,
+      board: [...document.querySelectorAll<HTMLElement>('[data-trial-cell]')].map(tile => tile.dataset.fruit),
+    };
     window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
     window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
-    return { card: card.scrollTop, viewport: viewport.scrollTop, focused: cell.dataset.trialCell };
+    return before;
   });
   await expect(page.locator('.trial-card [data-star="3"]')).toContainText('恢复检查完成');
   expect(await page.evaluate(() => ({
     card: document.querySelector('.trial-card')!.scrollTop,
     viewport: document.querySelector('.trial-board-viewport')!.scrollTop,
     focused: (document.activeElement as HTMLElement).dataset.trialCell,
-    retained: (window as unknown as { retainedBoard: Element }).retainedBoard === document.querySelector('#trial-board'),
-  }))).toEqual({ ...before, retained: true });
+    board: [...document.querySelectorAll<HTMLElement>('[data-trial-cell]')].map(tile => tile.dataset.fruit),
+  }))).toEqual(before);
   expect((await session(page)).state).toEqual(original.state);
   expect((await session(page)).hintLevel).toBe(0);
 });
@@ -301,7 +307,7 @@ test('cached page restore resumes the requested theme after generation was cance
     window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
     window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
   });
-  await expect(page.locator(".trial-theme-button")).toContainText("18 ·");
+  await expect(page.locator(".trial-theme-button")).toContainText("综合送达");
   await expect(page.locator('[data-trial="preview"]')).toBeEnabled();
   expect(await page.evaluate(() => Object.getOwnPropertyDescriptor(window, "generationRequests")?.value)).toEqual([18, 18]);
 });

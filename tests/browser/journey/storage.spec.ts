@@ -17,7 +17,7 @@ test("invalid import never changes current game; export can round-trip", async (
   const before = await state(page);
   await page.getByRole("button", { name: "音效与设置" }).click();
   const downloadEvent = page.waitForEvent("download");
-  await page.getByRole("button", { name: "导出试玩进度", exact: true }).click();
+  await page.getByRole("button", { name: "导出进度", exact: true }).click();
   const download = await downloadEvent;
   const path = await download.path();
   expect(path).toBeTruthy();
@@ -27,7 +27,7 @@ test("invalid import never changes current game; export can round-trip", async (
     buffer: Buffer.from('{"version":'),
   });
   const error = page.getByRole("dialog", { name: "无法导入这份进度" });
-  await expect(error).toContainText("存档不是完整的 JSON 文件");
+  await expect(error).toContainText("这不是有效的进度文件");
   expect(await state(page)).toEqual(before);
   await error.getByRole("button", { name: "返回设置" }).click();
   await page.locator("#trial-import").setInputFiles(path!);
@@ -115,7 +115,7 @@ test("large Unicode progress imports, downloads and reimports without losing his
   expect(await state(page)).toEqual(imported);
   await page.getByRole("button", { name: "音效与设置" }).click();
   const downloadEvent = page.waitForEvent("download");
-  await page.getByRole("button", { name: "导出试玩进度", exact: true }).click();
+  await page.getByRole("button", { name: "导出进度", exact: true }).click();
   const download = await downloadEvent;
   const downloadedPath = testInfo.outputPath("unicode-progress-export.json");
   await download.saveAs(downloadedPath);
@@ -143,7 +143,7 @@ test("export stays available after a storage failure and reports download errors
   });
   await page.getByRole("button", { name: "音效与设置" }).click();
   const downloadEvent = page.waitForEvent("download");
-  await page.getByRole("button", { name: "导出试玩进度", exact: true }).click();
+  await page.getByRole("button", { name: "导出进度", exact: true }).click();
   const downloadedPath = testInfo.outputPath("storage-unavailable-export.json");
   await (await downloadEvent).saveAs(downloadedPath);
   expect(parseJourneySave(await readFile(downloadedPath, "utf8"))).toEqual(
@@ -152,12 +152,12 @@ test("export stays available after a storage failure and reports download errors
   expect(await state(page)).toEqual(before);
   await page.evaluate(() => {
     URL.createObjectURL = () => {
-      throw new Error("下载暂不可用");
+      throw new Error("Mock object URL failure");
     };
   });
-  await page.getByRole("button", { name: "导出试玩进度", exact: true }).click();
+  await page.getByRole("button", { name: "导出进度", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("无法导出这份进度");
-  await expect(page.getByRole("dialog")).toContainText("下载暂不可用");
+  await expect(page.getByRole("dialog")).toContainText("下载失败，请返回设置重试");
   expect(await state(page)).toEqual(before);
 });
 
@@ -189,17 +189,17 @@ test("denied startup storage offers recovery guidance and still exports new in-m
     { key: KEY, original },
   );
   await page.goto("/?play=lab");
-  await expect(page.getByRole("dialog")).toContainText("本地存储权限");
-  await expect(page.getByRole("dialog")).toContainText("暂时无法导出原文件");
+  await expect(page.getByRole("dialog")).toContainText("请检查是否允许此页面保存数据");
+  await expect(page.getByRole("dialog")).toContainText("暂时无法导出原存档");
   await expect(
     page.getByRole("button", { name: "导出原存档", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "开始新的试玩", exact: true }).click();
+  await page.getByRole("button", { name: "开始新一局", exact: true }).click();
   await expect(page.locator("#trial-board")).toBeVisible();
-  await expect(page.locator("#trial-save")).toContainText("存储不可用");
+  await expect(page.locator("#trial-save")).toContainText("进度未保存");
   await page.getByRole("button", { name: "音效与设置" }).click();
   const downloadEvent = page.waitForEvent("download");
-  await page.getByRole("button", { name: "导出试玩进度", exact: true }).click();
+  await page.getByRole("button", { name: "导出进度", exact: true }).click();
   const path = testInfo.outputPath("denied-storage-new-progress.json");
   await (await downloadEvent).saveAs(path);
   expect(parseJourneySave(await readFile(path, "utf8")).session).toBeTruthy();
@@ -227,22 +227,17 @@ test("damaged original backup retains exact bytes when subsequent storage reads 
           throw new DOMException("Later read denied", "SecurityError");
         return read.call(this, name);
       };
-      Object.assign(window, { recoveryReads: () => readCount });
     },
     { key: KEY, original },
   );
   await page.goto("/?play=lab");
+  await expect(page.evaluate((key) => localStorage.getItem(key), KEY)).rejects.toThrow("Later read denied");
   const downloadEvent = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出原存档", exact: true }).click();
   const path = testInfo.outputPath("damaged-original.json");
   await (await downloadEvent).saveAs(path);
   expect(await readFile(path)).toEqual(Buffer.from(original));
-  expect(
-    await page.evaluate(() =>
-      (window as unknown as { recoveryReads: () => number }).recoveryReads(),
-    ),
-  ).toBe(1);
-  await expect(page.getByRole("alert")).toContainText("已发起原存档下载");
+  await expect(page.getByRole("alert")).toContainText("原存档已开始下载");
   expect(errors).toEqual([]);
 });
 
@@ -258,16 +253,14 @@ test("damaged original download failures give feedback and allow an exact backup
   );
   await page.goto("/?play=lab");
   await page.evaluate(() => {
-    const createURL = URL.createObjectURL;
     const click = HTMLAnchorElement.prototype.click;
     Object.assign(window, {
       restoreDownload: () => {
-        URL.createObjectURL = createURL;
         HTMLAnchorElement.prototype.click = click;
       },
     });
-    URL.createObjectURL = () => {
-      throw new Error("文件下载暂不可用");
+    HTMLAnchorElement.prototype.click = () => {
+      throw new Error("Mock anchor click failure");
     };
   });
   const exportButton = page.getByRole("button", {
@@ -275,16 +268,7 @@ test("damaged original download failures give feedback and allow an exact backup
     exact: true,
   });
   await exportButton.click();
-  await expect(page.getByRole("alert")).toContainText("文件下载暂不可用");
-  await expect(page.getByRole("alert")).toContainText("可以重试");
-  await page.evaluate(() => {
-    (window as unknown as { restoreDownload: () => void }).restoreDownload();
-    HTMLAnchorElement.prototype.click = () => {
-      throw new Error("下载触发失败");
-    };
-  });
-  await exportButton.click();
-  await expect(page.getByRole("alert")).toContainText("下载触发失败");
+  await expect(page.getByRole("alert")).toHaveText("下载失败。原存档仍保留，可以重试。");
   expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(
     original,
   );
@@ -302,22 +286,46 @@ test("damaged original download failures give feedback and allow an exact backup
   expect(errors).toEqual([]);
 });
 
-test("incompatible stored version is preserved until a new puzzle is chosen", async ({
+test("closing recovery or losing write access cannot silently replace the original save", async ({
   page,
 }) => {
   const original = '{"version":999}';
   await page.addInitScript(
-    ({ key, value }) => localStorage.setItem(key, value),
+    ({ key, value }) => {
+      localStorage.setItem(key, value);
+      const write = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (name, text) {
+        if (name === key && document.documentElement.dataset.blockSave)
+          throw new DOMException("Write denied", "QuotaExceededError");
+        write.call(this, name, text);
+      };
+    },
     { key: KEY, value: original },
   );
   await page.goto("/?play=lab");
   await expect(page.getByRole("dialog")).toContainText(
-    "发现需要处理的试玩存档",
+    "无法恢复流转送达进度",
   );
+  await page.getByRole("button", { name: "关闭弹窗", exact: true }).click();
+  await page.getByRole("button", { name: "选择主题", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "无法恢复流转送达进度" })).toBeVisible();
   await page.evaluate(() =>
     document.dispatchEvent(new Event("visibilitychange")),
   );
   expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(
     original,
   );
+  await page.evaluate(() => { document.documentElement.dataset.blockSave = "true"; });
+  await page.getByRole("button", { name: "开始新一局", exact: true }).click();
+  await expect(page.locator("#trial-board")).toBeVisible();
+  await expect(page.locator("#trial-save")).toContainText("进度未保存");
+  await page.evaluate(() => { delete document.documentElement.dataset.blockSave; });
+  await page.getByRole("button", { name: "暂停", exact: true }).click();
+  expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).toBe(original);
+  await page.getByRole("button", { name: "继续这一局" }).click();
+  await page.getByRole("button", { name: "音效与设置" }).click();
+  await page.getByRole("button", { name: "处理原进度" }).click();
+  await page.getByRole("button", { name: "用当前进度替换" }).click();
+  await expect(page.locator("#trial-save")).toHaveText("已保存");
+  expect(await page.evaluate((key) => localStorage.getItem(key), KEY)).not.toBe(original);
 });

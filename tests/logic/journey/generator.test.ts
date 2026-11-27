@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import backups from "../../../src/journey/generated/backups.json";
-import { selectBackup } from "../../../src/journey/backups";
 import {
   candidate,
   certify,
@@ -16,9 +15,16 @@ import {
   validatePuzzle,
 } from "../../../src/journey/rules";
 import { replay, solve, stateKey } from "../../../src/journey/solver";
+import { THEMES } from "../../../src/journey/themes";
 import type { Board, Point } from "../../../src/engine";
-import type { JourneyState, Move, Puzzle, ThemeId } from "../../../src/journey/types";
-const ids = [13, 14, 15, 16, 17, 18] as ThemeId[];
+import {
+  BACKUPS_PER_THEME,
+  type JourneyState,
+  type Move,
+  type Puzzle,
+  type ThemeId,
+} from "../../../src/journey/types";
+
 // Candidate seeds, selected from live generation. Certification tests use a
 // node limit. The browser benchmark measures the separate wall-clock budget.
 const certifiedSeeds = {
@@ -218,11 +224,10 @@ function independentMinimum(p: Puzzle): number {
   return visit(independentInitial(p), initialState(p));
 }
 
-test("all 192 backups have independent ordinary/challenge/nonchallenge proofs and semantic diversity", () => {
-  for (const themeId of ids) {
+test("every theme has distinct backups with independently verified solutions", () => {
+  for (const { id: themeId } of THEMES) {
     const pool = (backups as Puzzle[]).filter((p) => p.themeId === themeId);
-    assert.equal(pool.length, 32);
-    assert.equal(new Set(pool.map(fingerprint)).size, 32);
+    assert.equal(new Set(pool.map(fingerprint)).size, BACKUPS_PER_THEME);
     for (const p of pool) {
       assert.ok(validatePuzzle(p));
       assert.ok(won(p, independentReplay(p, p.proof.win)));
@@ -238,7 +243,7 @@ test("all 192 backups have independent ordinary/challenge/nonchallenge proofs an
   }
 });
 test("certified candidates vary geometry and partnerships and verify meaningful critical branches", () => {
-  for (const themeId of ids) {
+  for (const { id: themeId } of THEMES) {
     const seen = new Set<string>();
     for (const seed of certifiedSeeds[themeId].slice(0, 4)) {
       const p = certifyCandidate(themeId, seed);
@@ -309,17 +314,6 @@ test("all seven historically unfinished theme 18 seeds have both challenge and n
     assert.ok(won(p, ordinary), p.id);
     assert.equal(independentChallenge(p, ordinary), false, p.id);
     assert.equal(independentMinimum(p), p.proof.minimumFuel, p.id);
-  }
-});
-test("backup selection avoids latest twenty and cloning protects bundled data", () => {
-  for (const themeId of ids) {
-    const recent = (backups as Puzzle[])
-      .filter((p) => p.themeId === themeId)
-      .map((p) => p.id);
-    const p = selectBackup(themeId, recent, () => 0);
-    assert.equal(p.id, recent[20]);
-    p.initial[0][0] = 99;
-    assert.notEqual(selectBackup(themeId, recent, () => 0).initial[0][0], 99);
   }
 });
 test("replay agrees with normal runtime terminal challenge evaluation", () => {

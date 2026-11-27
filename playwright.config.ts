@@ -21,7 +21,7 @@ export default defineConfig({
   },
   webServer: {
     // Build before previewing. Port 0 lets the OS assign a free loopback port.
-    command: "npm run build && npm run preview -- --host 127.0.0.1 --port 0",
+    command: "npm run build:bundle && npm run preview -- --host 127.0.0.1 --port 0",
     wait: {
       // Playwright's baseURL fixture reads this environment variable in each worker.
       stdout: /Local:\s+(?<PLAYWRIGHT_TEST_BASE_URL>http:\/\/127\.0\.0\.1:\d+\/)/,

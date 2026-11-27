@@ -1,6 +1,7 @@
 import { parseSaveJSON } from "../storage";
 import { createSession, earnedStars, playMove } from "./session";
 import { challengeMet } from "./rules";
+import { THEMES } from "./themes";
 import type { JourneySave, JourneySession, Move, ThemeId } from "./types";
 
 export const KEY = "jelly-grove.journey-trial.v1";
@@ -8,6 +9,8 @@ export const MAX_JOURNEY_SAVE_CHARACTERS = 4_000_000;
 // UTF-8 needs at most three bytes per UTF-16 code unit, including non-ASCII IDs.
 export const MAX_JOURNEY_SAVE_FILE_BYTES = MAX_JOURNEY_SAVE_CHARACTERS * 3;
 const MAX_HINTED = 10_000;
+const invalidPuzzle = "这份存档的棋盘无法恢复。";
+const invalidHistory = "这份存档的对局记录不完整。";
 export function emptyJourneySave(): JourneySave {
   return { version: 1, session: null, best: {}, recent: [], hinted: [] };
 }
@@ -56,7 +59,7 @@ function normalizeHints(
 
 export function parseJourneySave(text: string): JourneySave {
   if (text.length > MAX_JOURNEY_SAVE_CHARACTERS)
-    throw new Error("新关卡存档过大，无法读取。");
+    throw new Error("存档文件过大，无法读取。");
   const raw = parseSaveJSON(text) as JourneySave;
   if (
     !record(raw) ||
@@ -66,13 +69,13 @@ export function parseJourneySave(text: string): JourneySave {
     !validIds(raw.hinted, MAX_HINTED) ||
     !Object.entries(raw.best).every(
       ([key, stars]) =>
-        /^1[3-8]$/.test(key) &&
+        THEMES.some(({ id }) => String(id) === key) &&
         Number.isInteger(stars) &&
         (stars as number) >= 0 &&
         (stars as number) <= 3,
     )
   ) {
-    throw new Error("新关卡存档不完整或版本不兼容。");
+    throw new Error("这份存档无法在当前版本的流转送达中打开。");
   }
   let session: JourneySession | null = null;
   if (raw.session !== null) {
@@ -87,31 +90,35 @@ export function parseJourneySave(text: string): JourneySave {
       (saved.hintLevel as number) < 0 ||
       (saved.hintLevel as number) > 3
     )
-      throw new Error("新关卡行动记录不完整。");
-    session = createSession(saved.puzzle, saved.hintLevel);
+      throw new Error(invalidHistory);
+    try {
+      session = createSession(saved.puzzle, saved.hintLevel);
+    } catch (cause) {
+      throw new Error(invalidPuzzle, { cause });
+    }
     for (const kind of ["win", "challenge", "ordinary"] as const) {
       const witness = createSession(saved.puzzle);
       for (const action of saved.puzzle.proof[kind])
         if (!playMove(witness, action).ok)
-          throw new Error("新关卡解法记录无法重放。");
+          throw new Error(invalidPuzzle);
       if (
         witness.state.phase !== "won" ||
         (kind !== "win" &&
           challengeMet(witness.puzzle, witness.state) !==
             (kind === "challenge"))
       )
-        throw new Error("新关卡解法与目标或挑战不一致。");
+        throw new Error(invalidPuzzle);
     }
     // Replay every action; submitted state and undo history never become authoritative.
     for (const action of saved.actions as Move[]) {
       if (!playMove(session, action).ok)
-        throw new Error("新关卡行动记录无法重放。");
+        throw new Error(invalidHistory);
     }
     if (
       canonical(session.state) !== canonical(saved.state) ||
       canonical(session.history) !== canonical(saved.history)
     )
-      throw new Error("新关卡状态与行动记录不一致。");
+      throw new Error(invalidHistory);
   }
   return {
     version: 1,
@@ -133,17 +140,18 @@ export function loadJourneySave(): {
   } catch {
     return {
       save: emptyJourneySave(),
-      warning: "暂时无法读取试玩存档。请检查浏览器的本地存储权限，再刷新重试。",
+      warning: "浏览器无法读取存档。请检查是否允许此页面保存数据，再刷新重试。",
     };
   }
+  if (text === null) return { save: emptyJourneySave() };
   try {
-    return { save: text ? parseJourneySave(text) : emptyJourneySave() };
-  } catch (error) {
+    return { save: parseJourneySave(text) };
+  } catch {
     return {
       save: emptyJourneySave(),
-      warning: error instanceof Error ? error.message : "未能解析新关卡存档。",
+      warning: "原存档可能已损坏或与当前版本不兼容。",
       // Retain exactly what was read, even if later storage access is denied.
-      rawBackup: text ?? "",
+      rawBackup: text,
     };
   }
 }

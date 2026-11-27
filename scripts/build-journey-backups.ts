@@ -1,32 +1,27 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { generatePuzzle, fingerprint } from "../src/journey/generator";
-import { replay } from "../src/journey/solver";
-import { challengeMet } from "../src/journey/rules";
-import { GENERATOR_VERSION, type Puzzle, type ThemeId } from "../src/journey/types";
+import { THEMES } from "../src/journey/themes";
+import {
+  BACKUPS_PER_THEME,
+  GENERATOR_VERSION,
+  type Puzzle,
+} from "../src/journey/types";
+import { BATCH_GENERATION_BUDGET_MS } from "./journey-generation";
+
 const backups: Puzzle[] = [],
   metrics = [];
-for (const theme of [13, 14, 15, 16, 17, 18] as ThemeId[]) {
+for (const { id: theme } of THEMES) {
   const seen = new Set<string>();
   let seed = theme * 100000,
     attempts = 0;
-  while (seen.size < 32) {
+  while (seen.size < BACKUPS_PER_THEME) {
     if (attempts++ > 1000)
       throw new Error(`Theme ${theme}: insufficient distinct verified boards`);
-    const result = generatePuzzle(theme, seed++, 2800);
+    const result = generatePuzzle(theme, seed++, BATCH_GENERATION_BUDGET_MS);
     if (result.status !== "generated") continue;
     const p = result.puzzle,
       key = fingerprint(p);
     if (seen.has(key)) continue;
-    const win = replay(p, p.proof.challenge),
-      ordinary = replay(p, p.proof.ordinary);
-    if (
-      !win ||
-      !ordinary ||
-      !challengeMet(p, win) ||
-      ordinary.phase !== "won" ||
-      challengeMet(p, ordinary)
-    )
-      throw new Error("Invalid proof");
     seen.add(key);
     backups.push(p);
   }

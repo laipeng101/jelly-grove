@@ -3,11 +3,17 @@ import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
+import { THEMES } from "../src/journey/themes.ts";
+import {
+  GENERATION_TIMEOUT_MS,
+  RECENT_PUZZLE_LIMIT,
+} from "../src/journey/types.ts";
+import {
+  BENCHMARK_ACCEPTANCE_TARGET,
+  benchmarkRequestCount,
+} from "./journey-generation.ts";
 
-const count = Number(process.env.JOURNEY_BENCH_COUNT ?? 100);
-if (!Number.isSafeInteger(count) || count < 1) {
-  throw new Error("JOURNEY_BENCH_COUNT must be a positive integer");
-}
+const count = benchmarkRequestCount();
 const file = pathToFileURL(resolve("dist/果冻果园.html"));
 const offlineHash = createHash("sha256").update(await readFile(file)).digest("hex");
 file.searchParams.set("play", "lab");
@@ -25,64 +31,82 @@ page.on("pageerror", (error) => errors.push(error.message));
 // Observe real Worker responses without exposing a testing API in the product.
 await page.addInitScript(() => {
   const NativeWorker = window.Worker;
-  window.__journeyWorkers = [];
+  const observed = { workerCount: 0, generated: [] };
+  window.__journeyBenchmark = observed;
   window.Worker = class extends NativeWorker {
     constructor(...args) {
       const started = performance.now();
       super(...args);
+      const number = ++observed.workerCount;
       this.addEventListener("message", (event) => {
-        window.__journeyWorkers.push({
-          status: event.data.status,
-          id: event.data.puzzle?.id,
-          elapsedMs: performance.now() - started,
-        });
+        if (event.data.status === "generated") {
+          observed.generated.push({
+            number,
+            id: event.data.puzzle.id,
+            elapsedMs: performance.now() - started,
+          });
+        }
       });
     }
   };
 });
 const key = "jelly-grove.journey-trial.v1";
-const current = () =>
-  page.evaluate((key) => {
-    const saved = JSON.parse(localStorage.getItem(key) || "null");
-    if (!saved?.session) return null;
-    const p = saved.session.puzzle;
-    const worker = window.__journeyWorkers.findLast((w) => w.id === p.id);
-    return {
-      id: p.id,
-      themeId: p.themeId,
-      seed: p.seed,
-      source: worker ? "generated" : "backup",
-      workerMs: worker?.elapsedMs ?? null,
-    };
-  }, key);
 const themes = [];
 try {
   await page.goto(file.href);
   await page.locator("#trial-board").waitFor();
-  for (const themeId of [13, 14, 15, 16, 17, 18]) {
+  for (const { id: themeId } of THEMES) {
     const runs = [];
     for (let i = 0; i < count; i++) {
-      const before = await current();
       await page.locator(".trial-theme-button").click();
+      const before = await page.evaluate(
+        ({ key, recentLimit }) => ({
+          workerCount: window.__journeyBenchmark.workerCount,
+          recent: JSON.parse(localStorage.getItem(key)).recent.slice(
+            0,
+            recentLimit,
+          ),
+        }),
+        { key, recentLimit: RECENT_PUZZLE_LIMIT },
+      );
       const started = performance.now();
       await page.locator(`[data-pick-theme="${themeId}"]`).click();
       await page.waitForFunction(
-        ({ key, id, themeId }) => {
+        ({ key, themeId }) => {
           const p = JSON.parse(localStorage.getItem(key) || "null")?.session
             ?.puzzle;
-          return p && p.id !== id && p.themeId === themeId;
+          const preview = document.querySelector('[data-trial="preview"]');
+          return p?.themeId === themeId && preview?.disabled === false;
         },
-        { key, id: before?.id, themeId },
+        { key, themeId },
         { timeout: 10000, polling: 25 },
+      );
+      const current = await page.evaluate(
+        ({ key, previousWorkers }) => {
+          const { id, themeId, seed } = JSON.parse(localStorage.getItem(key))
+            .session.puzzle;
+          const worker = window.__journeyBenchmark.generated.findLast(
+            (w) => w.number > previousWorkers && w.id === id,
+          );
+          return {
+            id,
+            themeId,
+            seed,
+            source: worker ? "generated" : "backup",
+            workerMs: worker?.elapsedMs ?? null,
+          };
+        },
+        { key, previousWorkers: before.workerCount },
       );
       runs.push({
         index: i,
-        ...(await current()),
+        ...current,
         uiMs: performance.now() - started,
+        repeatedRecent: before.recent.includes(current.id),
       });
     }
     const generated = runs.filter(
-      (r) => r.source === "generated" && r.workerMs < 3000,
+      (r) => r.source === "generated" && r.workerMs < GENERATION_TIMEOUT_MS,
     );
     const times = generated.map((r) => r.workerMs).sort((a, b) => a - b);
     const metrics = {
@@ -91,6 +115,7 @@ try {
       generated: generated.length,
       acceptance: generated.length / count,
       unique: new Set(runs.map((r) => r.id)).size,
+      recentRepeats: runs.filter((r) => r.repeatedRecent).length,
       p95Ms: times[Math.floor(times.length * 0.95)],
       maxMs: times.at(-1),
       runs,
@@ -114,7 +139,9 @@ try {
   );
   if (
     errors.length ||
-    themes.some((t) => t.acceptance < 0.9 || t.unique !== count)
+    themes.some(
+      (t) => t.acceptance < BENCHMARK_ACCEPTANCE_TARGET || t.recentRepeats > 0,
+    )
   )
     process.exitCode = 1;
 } finally {

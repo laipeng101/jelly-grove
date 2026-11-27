@@ -1,5 +1,4 @@
-import type { Theme } from "./types";
-export const THEMES: Theme[] = [
+export const THEMES = [
   {
     id: 13,
     name: "到站配对",
@@ -36,4 +35,4 @@ export const THEMES: Theme[] = [
     lesson: "清出连线路径，让两种目标到达采收口，同时少用普通水果。",
     hint: "优先消除既能清出连线路径，又能让目标更接近采收口的配对。",
   },
-];
+] as const;

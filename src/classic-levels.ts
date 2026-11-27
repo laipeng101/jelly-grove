@@ -1,5 +1,7 @@
 import type { Level } from "./engine";
 
+export const SPRINT_DURATION_MS = 120_000;
+
 /** Stable practice/sprint presets. New journey content must never mutate these. */
 export function classicLevel(
   mode: "free" | "sprint",
@@ -13,7 +15,7 @@ export function classicLevel(
     id,
     name:
       mode === "sprint"
-        ? "120 秒，鲜榨快乐"
+        ? `${SPRINT_DURATION_MS / 1000} 秒限时挑战`
         : ["轻松一盘", "刚刚好的挑战", "高手的果园"][difficulty],
     rows: difficulty === 0 ? 6 : 8,
     cols: 6,

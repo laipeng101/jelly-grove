@@ -24,7 +24,7 @@ test("both pages restore shared settings on actual history navigation and preser
   await page.goto("/");
   await page.getByRole("button", { name: "继续这一局", exact: true }).click();
   await expect(page.locator("#play-caption")).toHaveText("点两颗相同水果，最多两弯，可绕外沿。");
-  await page.getByRole("link", { name: "新关卡试玩", exact: true }).click();
+  await page.getByRole("link", { name: "流转送达", exact: true }).click();
   await expect(page.locator("#trial-board")).toBeVisible();
   await page.getByRole("button", { name: "音效与设置" }).click();
   const trialSettings = page.getByRole("dialog", { name: "音效与设置" });

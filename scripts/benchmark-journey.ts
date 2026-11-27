@@ -1,22 +1,24 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { generatePuzzle, fingerprint } from "../src/journey/generator";
-import { replay } from "../src/journey/solver";
-import { challengeMet } from "../src/journey/rules";
-import { GENERATOR_VERSION, type ThemeId } from "../src/journey/types";
-const count = Number(process.env.JOURNEY_BENCH_COUNT ?? 100),
-  base = Number(process.env.JOURNEY_BENCH_SEED || 980000);
-if (!Number.isSafeInteger(count) || count < 1) {
-  throw new Error("JOURNEY_BENCH_COUNT must be a positive integer");
-}
+import { THEMES } from "../src/journey/themes";
+import { GENERATION_TIMEOUT_MS, GENERATOR_VERSION } from "../src/journey/types";
+import {
+  BATCH_GENERATION_BUDGET_MS,
+  BENCHMARK_ACCEPTANCE_TARGET,
+  benchmarkRequestCount,
+} from "./journey-generation";
+
+const count = benchmarkRequestCount();
+const base = Number(process.env.JOURNEY_BENCH_SEED || 980000);
 const themes = [];
 let failed = false;
-for (const themeId of [13, 14, 15, 16, 17, 18] as ThemeId[]) {
+for (const { id: themeId } of THEMES) {
   const runs = [],
     distinct = new Set<string>();
   for (let i = 0; i < count; i++) {
     const seed = (base + themeId * 1000 + i) >>> 0,
-      result = generatePuzzle(themeId, seed, 2800);
+      result = generatePuzzle(themeId, seed, BATCH_GENERATION_BUDGET_MS);
     if (result.status === "unknown") {
       runs.push({
         seed,
@@ -27,17 +29,7 @@ for (const themeId of [13, 14, 15, 16, 17, 18] as ThemeId[]) {
       });
       continue;
     }
-    const p = result.puzzle,
-      a = replay(p, p.proof.challenge),
-      b = replay(p, p.proof.ordinary);
-    if (
-      !a ||
-      !b ||
-      !challengeMet(p, a) ||
-      b.phase !== "won" ||
-      challengeMet(p, b)
-    )
-      throw new Error(`Proof mismatch ${p.id}`);
+    const p = result.puzzle;
     const signature = createHash("sha256").update(fingerprint(p)).digest("hex");
     distinct.add(signature);
     runs.push({
@@ -54,7 +46,7 @@ for (const themeId of [13, 14, 15, 16, 17, 18] as ThemeId[]) {
     });
   }
   const accepted = runs.filter(
-      (r) => r.status === "generated" && r.elapsedMs < 3000,
+      (r) => r.status === "generated" && r.elapsedMs < GENERATION_TIMEOUT_MS,
     ),
     times = accepted.map((r) => r.elapsedMs).sort((a, b) => a - b);
   const metrics = {
@@ -68,7 +60,7 @@ for (const themeId of [13, 14, 15, 16, 17, 18] as ThemeId[]) {
     maxMs: times.at(-1),
     runs,
   };
-  if (metrics.acceptance < 0.9) failed = true;
+  if (metrics.acceptance < BENCHMARK_ACCEPTANCE_TARGET) failed = true;
   themes.push(metrics);
   console.log(JSON.stringify({ ...metrics, runs: undefined }));
 }

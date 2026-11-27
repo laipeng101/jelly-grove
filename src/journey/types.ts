@@ -1,7 +1,12 @@
 import type { Board, Point } from "../engine";
+import type { THEMES } from "./themes";
 
-export type ThemeId = 13 | 14 | 15 | 16 | 17 | 18;
+export type ThemeId = (typeof THEMES)[number]["id"];
+export const GENERATION_TIMEOUT_MS = 3000;
+// Reserve time for Worker startup and returning the board to the page.
+export const WORKER_GENERATION_BUDGET_MS = 2750;
 export const RECENT_PUZZLE_LIMIT = 20;
+export const BACKUPS_PER_THEME = 32;
 export type Move = { a: Point; b: Point };
 export type Track = { cells: Point[]; direction: 1 | -1 };
 export type Movement =
@@ -75,12 +80,6 @@ export type JourneySave = {
   best: Partial<Record<ThemeId, number>>;
   recent: string[];
   hinted: string[];
-};
-export type Theme = {
-  id: ThemeId;
-  name: string;
-  lesson: string;
-  hint: string;
 };
 export type MatchResult =
   | { ok: false; reason: string }

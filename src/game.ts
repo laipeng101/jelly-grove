@@ -16,6 +16,7 @@ export const COMBO_STEP_POINTS = 25;
 export const MAX_COMBO_BONUS = 225;
 export const FEVER_DURATION_MS = 10_000;
 export const SPRINT_CLEAR_BONUS = 500;
+export const UNDO_HISTORY_LIMIT = 20;
 export type Outcome = {
   points: number;
   combo: number;
@@ -39,7 +40,11 @@ export function gameSnapshot(g: Game): Snapshot {
 }
 export function rememberMove(g: Game) {
   g.history.push(gameSnapshot(g));
-  if (g.history.length > 20) g.history.shift();
+  if (g.history.length > UNDO_HISTORY_LIMIT) g.history.shift();
+}
+
+export function comboTimeLeft(g: Game): number {
+  return COMBO_WINDOW - (g.elapsed - g.lastMatch);
 }
 
 function settleBoard(g: Game, level: Level, rng: () => number) {
@@ -82,7 +87,7 @@ export function commitMatch(
   const next = removePair(g.board, pair, level.gravity);
   rememberMove(g);
   g.combo =
-    g.cleared > 0 && g.elapsed - g.lastMatch <= COMBO_WINDOW ? g.combo + 1 : 1;
+    g.cleared > 0 && comboTimeLeft(g) >= 0 ? g.combo + 1 : 1;
   g.bestCombo = Math.max(g.bestCombo, g.combo);
   g.lastMatch = g.elapsed;
   const comboBonus = Math.min((g.combo - 1) * COMBO_STEP_POINTS, MAX_COMBO_BONUS);
@@ -135,7 +140,7 @@ export function advanceGame(g: Game, milliseconds: number) {
   );
   g.elapsed += dt;
   g.fever = Math.max(0, g.fever - dt);
-  if (g.elapsed - g.lastMatch > COMBO_WINDOW) g.combo = 0;
+  if (comboTimeLeft(g) < 0) g.combo = 0;
   if (g.mode === "sprint") {
     g.timeLeft = Math.max(0, g.timeLeft - dt);
     if (g.timeLeft === 0) {

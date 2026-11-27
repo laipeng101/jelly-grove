@@ -175,7 +175,7 @@ test.describe('desktop preview navigation', () => {
 
     for (const exit of ['p', 'Enter', 'Space']) {
       await page.keyboard.press('p');
-      await expect(page.getByRole('group', { name: '下一拍位置预览' })).toBeVisible();
+      await expect(page.getByRole('group', { name: '轨道位置预览' })).toBeVisible();
       await expect(page.getByRole('button', { name: '返回棋盘' })).toBeFocused();
       await page.keyboard.press(exit);
       await expect(page.getByRole('group', { name: '水果棋盘' })).toBeVisible();
@@ -207,7 +207,7 @@ for (const [width, height, fullBoard] of [
       return;
     }
     await checkTrialLayout(page);
-    await page.getByRole("button", { name: "下一拍", exact: true }).click();
+    await page.getByRole("button", { name: "预览轨道移动", exact: true }).click();
     await checkTrialLayout(page);
     await page.getByRole("button", { name: "返回棋盘", exact: true }).click();
   });
@@ -264,7 +264,6 @@ async function checkScrollableTrial(page: Page, enlarged = true) {
   await expect(page.locator(".trial-star")).toBeVisible();
   await expect(page.locator(".trial-legend")).toBeVisible();
   await expect(page.locator("#trial-save")).toBeVisible();
-  await expect(page.locator(".trial-seed")).toBeVisible();
   const targets = page.locator(
     ".trial-title button:visible,.trial-goal-fruits,.trial-star,.trial-challenge,.trial-stats > span,.trial-feedback,.trial-tools button,.trial-secondary button,.trial-legend > span,.trial-bottom > span",
   );
@@ -351,9 +350,9 @@ async function checkScrollableTrial(page: Page, enlarged = true) {
     await fruit.click();
     await expect(fruit).toHaveAttribute("aria-pressed", "false");
   }
-  await page.getByRole("button", { name: "下一拍", exact: true }).click();
+  await page.getByRole("button", { name: "预览轨道移动", exact: true }).click();
   await expect(
-    page.getByRole("group", { name: "下一拍位置预览" }),
+    page.getByRole("group", { name: "轨道位置预览" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "返回棋盘", exact: true }).click();
   await page.getByRole("button", { name: "玩法说明", exact: true }).click();
@@ -584,7 +583,7 @@ for (const mode of ["normal", "root", "visible"] as const) {
     await target.click();
     await expect(target).toHaveAttribute("aria-pressed", "true");
     await checkTrackArtwork(page, "selected");
-    await page.getByRole("button", { name: "下一拍", exact: true }).click();
+    await page.getByRole("button", { name: "预览轨道移动", exact: true }).click();
     await expect(page.locator(".trial-preview")).toBeVisible();
     await checkTrackArtwork(page, "preview");
 
@@ -600,7 +599,7 @@ for (const mode of ["normal", "root", "visible"] as const) {
   });
 }
 
-test("short screen with large text keeps the seed and storage failure reachable", async ({ page }) => {
+test("short screen with large text keeps the save failure reachable", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 540 });
   const p = await load(page, { theme: 17 });
   await enlargeTrialText(page, "visible");
@@ -615,7 +614,7 @@ test("short screen with large text keeps the seed and storage failure reachable"
     await page.locator(`[data-trial-cell="${point.r},${point.c}"]`).click();
   await expect(page.locator('[data-trial="preview"]')).toBeEnabled();
   const status = page.locator("#trial-save");
-  await expect(status).toHaveText("存储不可用，请导出");
+  await expect(status).toHaveText("进度未保存，请导出");
   await status.scrollIntoViewIfNeeded();
   await expect(status).toBeInViewport({ ratio: 0.99 });
   expect(

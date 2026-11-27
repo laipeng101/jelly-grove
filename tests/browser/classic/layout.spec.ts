@@ -130,7 +130,7 @@ test("available height changes, rotation and pause preserve live state", async (
     };
   });
   await page.getByRole("button", { name: "暂停游戏" }).click();
-  await expect(page.getByRole("dialog")).toContainText("未能保存进度");
+  await expect(page.getByRole("dialog")).toContainText("进度暂未保存");
 });
 
 test("compact menu retains modes, details, settings and focus", async ({
@@ -172,8 +172,8 @@ test("malformed import explains recovery in Chinese and keeps the classic board"
       buffer: Buffer.from('{"version":'),
     });
   const error = page.getByRole("dialog", { name: "无法导入这份进度" });
-  await expect(error).toContainText("存档不是完整的 JSON 文件");
-  await expect(error).toContainText("当前进度已保留。请在原模式重新导出进度后再试。");
+  await expect(error).toContainText("这不是有效的进度文件。");
+  await expect(error).toContainText("当前进度已保留。");
   await error.getByRole("button", { name: "返回设置" }).click();
   await expect(page.getByRole("button", { name: "导入进度" })).toBeVisible();
   await page.getByRole("button", { name: "关闭", exact: true }).click();
@@ -264,13 +264,18 @@ test("downloaded standalone HTML works offline with the same compact layout", as
     pathToFileURL(localFile).href,
   );
   await checkLayout(page, true);
+  const tiles = page.locator(".fruit-tile");
+  const before = await tiles.count();
   await page.getByRole("button", { name: "提示", exact: true }).click();
-  const hinted = await page
-    .locator(".hinted")
-    .evaluateAll((els) => els.map((el) => el.getAttribute("data-cell")));
-  for (const cell of hinted)
+  const hinted = page.locator(".fruit-tile.hinted");
+  await expect(hinted).toHaveCount(2);
+  const cells = await hinted.evaluateAll((els) =>
+    els.map((el) => el.getAttribute("data-cell")),
+  );
+  for (const cell of cells)
     await page.locator(`[data-cell="${cell}"]`).click();
   await settle(page);
+  await expect(tiles).toHaveCount(before - 2);
   await checkLayout(page, true);
   expect(requests).toEqual([]);
 });

@@ -322,12 +322,6 @@
   gap: 2px;
   min-height: 18px;
 }
-.trial-seed {
-  max-width: 115px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .trial-loading {
   padding: 80px 10px;
   text-align: center;
@@ -436,6 +430,10 @@
 .trial-hint ol {
   padding-left: 24px;
 }
+.trial-hint-choices + .trial-hint-choices {
+  border-top: 1px solid #e2e8da;
+  padding-top: 8px;
+}
 .trial-setting {
   display: flex;
   justify-content: space-between;
@@ -484,14 +482,6 @@
   justify-content: center;
   margin-top: 12px;
   font-size: 0.75rem;
-}
-.trial-diagnostics summary {
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  font-size: 0.75rem;
-  color: #85917e;
-  cursor: pointer;
 }
 @media (max-width: 870px), (max-height: 620px) and (pointer: coarse) {
   .trial-page {
@@ -652,12 +642,6 @@
     flex-wrap: wrap;
     gap: 4px 12px;
     padding: 4px 0;
-  }
-  .trial-large-text .trial-seed {
-    max-width: 100%;
-    overflow: visible;
-    white-space: normal;
-    overflow-wrap: anywhere;
   }
   .trial-large-text .trial-feedback {
     font-size: 0.75rem;

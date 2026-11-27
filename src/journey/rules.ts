@@ -7,6 +7,7 @@ import {
   type Board,
   type Point,
 } from "../engine";
+import { THEMES } from "./themes";
 import {
   GENERATOR_VERSION,
   RULE_VERSION,
@@ -258,7 +259,7 @@ export function validatePuzzle(puzzle: Puzzle): boolean {
       !puzzle ||
       puzzle.version !== RULE_VERSION ||
       puzzle.generatorVersion !== GENERATOR_VERSION ||
-      !int(puzzle.themeId, 13, 18) ||
+      !THEMES.some(({ id }) => id === puzzle.themeId) ||
       !int(puzzle.seed, 0, 0xffffffff) ||
       typeof puzzle.id !== "string" ||
       !puzzle.id.length ||

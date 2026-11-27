@@ -104,10 +104,12 @@ test("legacy empty playing sessions reconcile once and remain idempotent", () =>
 test("combo window and fever use elapsed game time, and a clear does not award twice", () => {
   const g = game();
   commitMatch(g, findPairs(g.board, 1)[0], LEVELS[0]);
-  advanceGame(g, COMBO_WINDOW - 1);
+  advanceGame(g, COMBO_WINDOW);
+  assert.equal(g.combo, 1);
   commitMatch(g, findPairs(g.board, 1)[0], LEVELS[0]);
   assert.equal(g.combo, 2);
   advanceGame(g, COMBO_WINDOW + 1);
+  assert.equal(g.combo, 0);
   commitMatch(g, findPairs(g.board, 1)[0], LEVELS[0]);
   assert.equal(g.combo, 1);
   while (g.phase === "playing")

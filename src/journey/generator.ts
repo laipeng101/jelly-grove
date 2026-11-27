@@ -546,7 +546,7 @@ export function certify(
 export function generatePuzzle(
   themeId: ThemeId,
   seed: number,
-  budgetMs = 2850,
+  budgetMs: number,
 ): GenerateResult {
   const start = performance.now(),
     deadline = start + budgetMs;

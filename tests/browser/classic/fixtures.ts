@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { classicLevel } from "../../../src/classic-levels";
+import { classicLevel, SPRINT_DURATION_MS } from "../../../src/classic-levels";
 import {
   LEVELS,
   generateBoard,
@@ -10,6 +10,7 @@ import {
 } from "../../../src/engine";
 import { commitMatch } from "../../../src/game";
 import { parseSave, type Game, type Mode, type Save } from "../../../src/storage";
+import { pauseBrowserClock } from "../clock";
 
 export function fixture(mode: Mode, level = 17, difficulty = 2, matches = 0) {
   const config: Level =
@@ -33,7 +34,7 @@ export function fixture(mode: Mode, level = 17, difficulty = 2, matches = 0) {
     lastMatch: 0,
     assists: 0,
     elapsed: 0,
-    timeLeft: 120000,
+    timeLeft: SPRINT_DURATION_MS,
     round: 1,
     phase: "playing",
     history: [],
@@ -63,8 +64,7 @@ export async function loadGame(page: Page, save: Save, url = "/") {
       localStorage.setItem("jelly-grove.save.v1", JSON.stringify(value)),
     save,
   );
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  await pauseBrowserClock(page);
   await page.goto(url);
   await page.getByRole("button", { name: "继续这一局", exact: true }).click();
   await settle(page);

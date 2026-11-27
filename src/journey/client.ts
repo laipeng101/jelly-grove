@@ -1,19 +1,20 @@
 import JourneyWorker from "./worker?worker&inline";
 import { selectBackup } from "./backups";
 import { validatePuzzle } from "./rules";
-import { RECENT_PUZZLE_LIMIT, type Puzzle, type ThemeId } from "./types";
+import {
+  GENERATION_TIMEOUT_MS,
+  RECENT_PUZZLE_LIMIT,
+  WORKER_GENERATION_BUDGET_MS,
+  type Puzzle,
+  type ThemeId,
+} from "./types";
 
 export async function requestPuzzle(
   themeId: ThemeId,
   recent: string[],
   signal?: AbortSignal,
-): Promise<{
-  puzzle: Puzzle;
-  source: "generated" | "backup";
-  elapsedMs: number;
-}> {
+): Promise<Puzzle> {
   if (signal?.aborted) throw new DOMException("已取消生成", "AbortError");
-  const start = performance.now();
   return new Promise((resolve, reject) => {
     let worker: Worker | undefined,
       settled = false,
@@ -23,16 +24,16 @@ export async function requestPuzzle(
       worker?.terminate();
       signal?.removeEventListener("abort", abort);
     };
-    const finish = (puzzle: Puzzle, source: "generated" | "backup") => {
+    const finish = (puzzle: Puzzle) => {
       if (settled) return;
       settled = true;
       cleanup();
-      resolve({ puzzle, source, elapsedMs: performance.now() - start });
+      resolve(puzzle);
     };
     const fallback = () => {
       if (settled) return;
       try {
-        finish(selectBackup(themeId, recent), "backup");
+        finish(selectBackup(themeId, recent));
       } catch (error) {
         settled = true;
         cleanup();
@@ -46,7 +47,7 @@ export async function requestPuzzle(
       reject(new DOMException("已取消生成", "AbortError"));
     };
     signal?.addEventListener("abort", abort, { once: true });
-    timer = setTimeout(fallback, 3000);
+    timer = setTimeout(fallback, GENERATION_TIMEOUT_MS);
     try {
       worker = new JourneyWorker();
       worker.onmessage = (event: MessageEvent) => {
@@ -57,12 +58,12 @@ export async function requestPuzzle(
           validatePuzzle(data.puzzle) &&
           !recent.slice(0, RECENT_PUZZLE_LIMIT).includes(data.puzzle.id)
         )
-          finish(data.puzzle, "generated");
+          finish(data.puzzle);
         else fallback();
       };
       worker.onerror = fallback;
       const seed = crypto.getRandomValues(new Uint32Array(1))[0];
-      worker.postMessage({ themeId, seed, budgetMs: 2750 });
+      worker.postMessage({ themeId, seed, budgetMs: WORKER_GENERATION_BUDGET_MS });
     } catch {
       fallback();
     }
