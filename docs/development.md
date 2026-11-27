@@ -2,18 +2,31 @@
 
 ## 按改动验证
 
+先选能验证本次改动的用例。改动共用逻辑时，覆盖受影响的入口。代码、测试输入、环境和验收条件相同时，可以沿用已有的通过结果。
+
 | 改动 | 检查 |
 | --- | --- |
 | 文档 | 核对链接和命令，运行 `git diff --check` |
-| 玩法或关卡 | 选对应逻辑测试文件。共用规则变更时覆盖两种模式的受影响行为 |
+| 玩法或关卡 | 选对应模式的逻辑测试文件 |
 | 布局或交互 | 选对应浏览器用例，按需要覆盖可视边界、触控尺寸、键盘焦点或动效中断 |
 | 存档格式、迁移或设置同步 | 按改动检查旧档读入、导入导出和失败恢复。共用设置在浏览器中实际执行后退和前进 |
+| 类型契约、测试夹具或 TypeScript 开发脚本 | `npm run test:types` |
 | 求解、出题、解法生成或备用棋盘 | `npm run test:generation`。影响流转送达合法配对或通关条件的改动也适用，涉及生成质量或预算时再跑[生成基准](#生成专项) |
 | 发布输入或离线行为 | 运行构建和受影响的离线用例，见[发布与离线验证](#发布与离线验证) |
 
-逻辑测试可直接传入文件，例如 `node --import tsx --test tests/logic/journey/rules.test.ts`。浏览器用例按文件和标题筛选，例如 `npm run test:browser -- tests/browser/journey/storage.spec.ts --grep 'invalid import'`。一次传入相关文件可共用生产打包和预览服务器。安装 Chromium 用 `npm run browser:install`，实际页面往返用例需要完整 Chromium。
+逻辑测试直接传入相关文件。
 
-改动类型契约、测试夹具或 TypeScript 开发脚本时，运行 `npm run test:types`。扩大回归范围时，用 `npm test` 检查常规逻辑，或用 `npm run test:browser` 检查浏览器。需要完整回归时，运行 `npm run verify`。代码、测试输入、环境和验收条件相同时，可以沿用已有的通过结果。
+```sh
+node --import tsx --test tests/logic/journey/rules.test.ts
+```
+
+浏览器测试一次传入相关文件，共用一次生产打包和预览服务器。只需验证文件内的部分场景时，用 `--grep` 按标题筛选。
+
+```sh
+npm run test:browser -- tests/browser/journey/storage.spec.ts tests/browser/navigation.spec.ts --grep 'invalid import|restore shared settings'
+```
+
+首次安装 Chromium 用 `npm run browser:install`，实际页面往返用例需要完整 Chromium。需要扩大覆盖范围时，用 `npm test` 检查常规逻辑，或用 `npm run test:browser` 检查浏览器。影响范围无法可靠缩小或明确要求完整回归时，运行 `npm run verify`。
 
 验收损坏存档恢复时，确认仍可导出读到的原文。玩家明确选择替换或确认导入有效存档后，也要等到写入成功才解除对原档的保护。
 
