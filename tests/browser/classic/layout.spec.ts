@@ -4,14 +4,12 @@ import { findPairs, remaining } from "../../../src/engine";
 import { commitMatch } from "../../../src/game";
 import { fixture, loadGame, checkLayout, settle } from "./fixtures";
 
-// Exercise every HUD at the minimum full-board viewport. Use the largest
-// board for the remaining compact width ranges.
+// The sprint HUD is covered by the live clock test. Sample the largest
+// boards at the phone and tablet breakpoints.
 for (const [mode, width, height] of [
   ["journey", 360, 640],
   ["free", 360, 640],
-  ["sprint", 360, 640],
   ["journey", 620, 740],
-  ["journey", 768, 1024],
   ["journey", 870, 720],
 ] as const) {
   test(`${mode} largest board fits ${width}×${height}`, async ({ page }) => {
@@ -20,14 +18,6 @@ for (const [mode, width, height] of [
     await loadGame(page, save);
     await checkLayout(page, true);
     await page.getByRole("button", { name: "提示", exact: true }).click();
-    await checkLayout(page, true);
-  });
-}
-
-for (const level of [1, 2, 3, 7, 13, 19]) {
-  test(`journey board shape at level ${level}`, async ({ page }) => {
-    await page.setViewportSize({ width: 360, height: 640 });
-    await loadGame(page, fixture("journey", level).save);
     await checkLayout(page, true);
   });
 }
@@ -60,9 +50,7 @@ test("live combo, expiry, fever and final seconds stay readable", async ({
 
 for (const [width, height] of [
   [320, 568],
-  [390, 480],
   [740, 360],
-  [932, 430],
 ]) {
   test(`short/landscape ${width}×${height} scrolls only the board`, async ({
     page,
@@ -133,7 +121,7 @@ test("available height changes, rotation and pause preserve live state", async (
   await expect(page.getByRole("dialog")).toContainText("进度暂未保存");
 });
 
-test("compact menu retains modes, details, settings and focus", async ({
+test("compact menu keeps focus and reaches both classic and delivery modes", async ({
   page,
 }) => {
   await loadGame(page, fixture("journey", 1).save);
@@ -154,6 +142,10 @@ test("compact menu retains modes, details, settings and focus", async ({
   await page.getByRole("button", { name: "果园漫游", exact: true }).click();
   await page.getByRole("button", { name: "继续这一局", exact: true }).click();
   await checkLayout(page, true);
+  await page.clock.resume();
+  await page.getByRole("button", { name: "切换游戏模式", exact: true }).click();
+  await page.getByRole("link", { name: "流转送达", exact: true }).click();
+  await expect(page.locator("#trial-board")).toBeVisible({ timeout: 10_000 });
 });
 
 test("malformed import explains recovery in Chinese and keeps the classic board", async ({

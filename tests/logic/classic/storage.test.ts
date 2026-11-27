@@ -1,25 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { classicLevel } from "../../../src/classic-levels.ts";
 import { parseSave, type Save, type Game } from "../../../src/storage.ts";
 import {
   generateBoard,
   LEVELS,
   remaining,
   findPairs,
+  makeLayout,
   removePair,
+  reshuffle,
   seedRandom,
   type Level,
 } from "../../../src/engine.ts";
 function fixture(): Save {
+  const board = makeLayout(LEVELS[0]);
   const g: Game = {
     mode: "journey",
     level: 1,
     difficulty: 1,
     seed: 4_000_000_000,
-    board: generateBoard(LEVELS[0]),
+    board,
     score: 0,
     cleared: 0,
-    total: 8,
+    total: remaining(board),
     combo: 0,
     bestCombo: 0,
     juice: 0,
@@ -112,7 +116,7 @@ function snapshot(g: Game) {
   };
 }
 
-test("invalid obstacles and unrepairable stone pockets cannot replace a save", () => {
+test("import rejects stones that do not belong to the saved level", () => {
   const s = fixture();
   s.sessions.journey!.board = [
     [-1, -1, -1, -1],
@@ -124,64 +128,56 @@ test("invalid obstacles and unrepairable stone pockets cannot replace a save", (
   assert.throws(() => parseSave(JSON.stringify(s)));
 });
 
+test("a v1 save with corner and center gaps restores its original board", () => {
+  const s = fixture();
+  const game = s.sessions.journey!;
+  game.level = 8;
+  game.board = [
+    [0, 1, 1, 1, 1, 0],
+    [1, 1, 1, 1, 1, 1],
+    [1, 1, 0, 0, 1, 1],
+    [1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1],
+    [1, 1, 0, 0, 1, 1],
+    [1, 1, 1, 1, 1, 1],
+    [0, 1, 1, 1, 1, 0],
+  ];
+  game.total = remaining(game.board);
+  assert.deepEqual(parseSave(JSON.stringify(s)), s);
+});
+
 test("legacy v1 layouts, new layouts, and undo/shuffle histories retain their original boards", () => {
-  for (const mode of ["journey", "free", "sprint"] as const) {
-    const cases =
-      mode === "journey"
-        ? LEVELS.map((l) => ({ l, difficulty: 1 }))
-        : [0, 1, 2].map((difficulty) => ({
-            l: LEVELS[[2, 7, 16][difficulty]],
-            difficulty,
-          }));
-    for (const { l, difficulty } of cases)
-      for (const legacy of [true, false]) {
-        const level: Level = {
-          ...l,
-          id: mode === "journey" ? l.id : 1,
-          gravity:
-            mode === "journey"
-              ? l.gravity
-              : mode === "free" && difficulty === 2,
-        };
-        if (legacy) delete level.layout;
-        // v1 generation did not simulate gravity; this still describes a legal v1 starting board.
-        const board = generateBoard(
-          legacy ? { ...level, gravity: false } : level,
-          seedRandom(131),
-        );
-        const s = fixture(),
-          g = s.sessions.journey!;
-        Object.assign(g, {
-          mode,
-          level: level.id,
-          difficulty,
-          board,
-          total: remaining(board),
-        });
-        delete s.sessions.journey;
-        s.sessions[mode] = g;
-        s.mode = mode;
-        assert.deepEqual(
-          parseSave(JSON.stringify(s)),
-          s,
-          `${mode}, level ${l.id}, legacy=${legacy}`,
-        );
-        // A shuffle snapshot may have the same cleared count as its neighbor.
-        g.history.push(snapshot(g), snapshot(g));
-        const pair = findPairs(g.board, 1)[0];
-        g.board = removePair(g.board, pair, level.gravity);
-        g.cleared = 1;
-        g.combo = 1;
-        g.bestCombo = 1;
-        g.score = 100;
-        g.lastMatch = 300;
-        g.juice = 12;
-        assert.deepEqual(parseSave(JSON.stringify(s)), s);
-        const undone = g.history.pop()!;
-        Object.assign(g, undone, { combo: 0, lastMatch: 0 });
-        g.assists++;
-        assert.deepEqual(parseSave(JSON.stringify(s)), s);
-      }
+  // The last journey level adds stones to the old full layout. The advanced
+  // free and sprint presets both have stones, but only free uses gravity.
+  const cases: { mode: Game["mode"]; level: Level; difficulty: number }[] = [
+    { mode: "journey", level: LEVELS.at(-1)!, difficulty: 1 },
+    { mode: "free", level: classicLevel("free", 2), difficulty: 2 },
+    { mode: "sprint", level: classicLevel("sprint", 2), difficulty: 2 },
+  ];
+  for (const { mode, level, difficulty } of cases) {
+    for (const legacy of [true, false]) {
+      // The old generator did not simulate gravity when assigning fruit pairs.
+      const layout = legacy ? { ...level, layout: undefined, gravity: false } : level;
+      const board = generateBoard(layout, seedRandom(131));
+      const s = fixture(),
+        g = s.sessions.journey!;
+      Object.assign(g, { mode, level: level.id, difficulty, board, total: remaining(board) });
+      s.sessions = { [mode]: g };
+      s.mode = mode;
+      const label = `${mode}, level ${level.id}, legacy=${legacy}`;
+      assert.deepEqual(parseSave(JSON.stringify(s)), s, label);
+
+      g.history.push(snapshot(g));
+      g.board = reshuffle(g.board, seedRandom(17));
+      g.history.push(snapshot(g));
+      g.board = removePair(g.board, findPairs(g.board, 1)[0], level.gravity);
+      Object.assign(g, { cleared: 1, combo: 1, bestCombo: 1, score: 100, lastMatch: 300, juice: 12 });
+      assert.deepEqual(parseSave(JSON.stringify(s)), s, label);
+
+      const undone = g.history.pop()!;
+      Object.assign(g, undone, { combo: 0, lastMatch: 0, assists: 1 });
+      assert.deepEqual(parseSave(JSON.stringify(s)), s, label);
+    }
   }
 });
 
@@ -195,7 +191,7 @@ test("legacy pending clear and sprint timeout saves remain recoverable", () => {
   assert.deepEqual(parseSave(JSON.stringify(s)), s);
   g.phase = "won";
   assert.deepEqual(parseSave(JSON.stringify(s)), s);
-  const b = generateBoard({ ...LEVELS[2], id: 1 }, seedRandom(2));
+  const b = makeLayout(classicLevel("sprint", 0));
   Object.assign(g, {
     mode: "sprint",
     difficulty: 0,

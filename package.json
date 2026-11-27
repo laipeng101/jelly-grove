@@ -9,11 +9,11 @@
     "build:bundle": "vite build && node scripts/package-offline.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --import tsx --test \"tests/logic/**/*.test.ts\"",
-    "test:smoke": "node --import tsx --test tests/logic/classic/game.test.ts tests/logic/journey/rules.test.ts tests/logic/journey/backups.test.ts",
+    "test:generation": "node --import tsx --test \"tests/generation/*.test.ts\"",
     "test:types": "tsc -p tsconfig.test.json",
     "browser:install": "node --import ./scripts/playwright.mjs node_modules/@playwright/test/cli.js install chromium",
     "test:browser": "node --import ./scripts/playwright.mjs node_modules/@playwright/test/cli.js test",
-    "verify": "npm run test:types && npm test && npm run test:browser",
+    "verify": "npm run test:types && npm test && npm run test:generation && npm run test:browser",
     "journey:benchmark": "tsx scripts/benchmark-journey.ts",
     "journey:benchmark:browser": "npm run build:bundle && node --import ./scripts/playwright.mjs scripts/benchmark-journey-browser.mjs",
     "journey:backups": "tsx scripts/build-journey-backups.ts"

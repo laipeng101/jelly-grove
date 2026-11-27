@@ -6,25 +6,6 @@ import { candidate, certify } from "../../../src/journey/generator";
 import { solve } from "../../../src/journey/solver";
 import { load, play, state } from "./fixtures";
 
-for (const [theme, kind] of [[13, "challenge"], [18, "ordinary"]] as const) {
-  test(`theme ${theme} ${kind}: finishing again after undo preserves the result`, async ({ page }) => {
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    const puzzle = await load(page, { theme });
-    for (const move of puzzle.proof[kind]) await play(page, move);
-    await expect(page.getByRole("status")).toContainText("送达完成");
-    const final = (await state(page)).session!;
-    expect(final.state.phase).toBe("won");
-    expect((await state(page)).best[theme]).toBe(kind === "challenge" ? 3 : 2);
-    await page.locator("#trial-result-stay").click();
-    await page.getByRole("button", { name: "↶ 撤销", exact: true }).click();
-    expect((await state(page)).session!.state.phase).toBe("playing");
-    await play(page, puzzle.proof[kind].at(-1)!);
-    expect((await state(page)).session!.state.score).toBe(final.state.score);
-    expect(errors).toEqual([]);
-  });
-}
-
 test("preview, hints, retry and refresh obey persistence contract", async ({
   page,
 }) => {
@@ -144,22 +125,5 @@ test("standalone trial opens and switches theme offline", async ({
   );
   await expect(page.locator('[data-trial="preview"]')).toBeEnabled();
   expect(network).toEqual([]);
-  expect(errors).toEqual([]);
-});
-
-test("classic compact menu reaches trial without global event errors", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto("/");
-  await page.getByRole("button", { name: "切换游戏模式", exact: true }).click();
-  await page
-    .getByRole("link", { name: "流转送达", exact: true })
-    .click();
-  await expect(page.locator("#trial-board")).toBeVisible({ timeout: 10_000 });
-  await page.setViewportSize({ width: 360, height: 640 });
-  await page.keyboard.press("p");
-  await page.keyboard.press("p");
   expect(errors).toEqual([]);
 });

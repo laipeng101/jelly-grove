@@ -17,32 +17,37 @@ on:
       - .github/workflows/pages.yml
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 concurrency:
-  group: github-pages
+  group: github-pages-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - run: npm run test:smoke
+      - run: npm ci --no-audit
+      - name: Check bundled boards
+        run: node --import tsx --test tests/generation/backups.test.ts
       - run: npm run build
       - name: Prepare site
         # The standalone build embeds all assets, so it also works under the
         # repository URL without changing Vite's base or the offline build.
         run: |
-          mkdir -p "${{ runner.temp }}/pages"
-          cp "dist/果冻果园.html" "${{ runner.temp }}/pages/index.html"
-          cp "dist/果冻果园.html" "${{ runner.temp }}/pages/果冻果园.html"
+          site="${{ runner.temp }}/pages"
+          offline="dist/果冻果园.html"
+          mkdir -p "$site"
+          cp "$offline" "$site/index.html"
+          cp "$offline" "$site/"
       - uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ runner.temp }}/pages

@@ -6,10 +6,7 @@ export default defineConfig({
   workers: 2,
   timeout: 30_000,
   outputDir: "output/playwright/regression",
-  reporter: [
-    ["dot"],
-    ["html", { outputFolder: "output/playwright/report", open: "never" }],
-  ],
+  reporter: "dot",
   use: {
     browserName: "chromium",
     viewport: { width: 390, height: 700 },

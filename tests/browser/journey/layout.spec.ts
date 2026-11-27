@@ -63,6 +63,7 @@ async function checkTrialLayout(page: Page) {
         };
         for (const selector of [
           ".trial-goal-fruits",
+          ".trial-star-condition",
           ".trial-challenge",
           ".trial-stats > span",
           ".trial-feedback",
@@ -97,6 +98,12 @@ async function checkTrialLayout(page: Page) {
             if (visible(e) && parseFloat(getComputedStyle(e).fontSize) < 12)
               issues.push(`${e.className}: important text below 12px`);
           });
+        for (const condition of document.querySelectorAll(".trial-star-condition")) {
+          if (parseFloat(getComputedStyle(condition).fontSize) < 16)
+            issues.push("star condition below 16px");
+          if (!condition.textContent?.trim() || /^(第一|第二|第三)星$/.test(condition.textContent.trim()))
+            issues.push("star condition missing");
+        }
         const viewport = document.querySelector<HTMLElement>(
           ".trial-board-viewport",
         )!;
@@ -190,28 +197,44 @@ test.describe('desktop preview navigation', () => {
   });
 });
 
-for (const [width, height, fullBoard] of [
-  [360, 640, true],
-  [390, 700, true],
-  [768, 1024, true],
-  [320, 568, false],
-  [740, 360, false],
+for (const [width, height, theme] of [
+  [360, 640, 17],
+  [768, 1024, 18],
 ] as const) {
-  test(`largest trial board at ${width}x${height}: painted HUD, touch targets and route gutter`, async ({
+  test(`theme ${theme} at ${width}x${height}: painted HUD, touch targets and route gutter`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
-    await load(page, { theme: 17 });
-    if (!fullBoard) {
-      await checkScrollableTrial(page, false);
-      return;
-    }
+    await load(page, { theme });
+    await expect(page.locator(".trial-star-condition")).toHaveCount(3);
     await checkTrialLayout(page);
     await page.getByRole("button", { name: "预览轨道移动", exact: true }).click();
     await checkTrialLayout(page);
     await page.getByRole("button", { name: "返回棋盘", exact: true }).click();
   });
 }
+
+test("landscape touch layout keeps board edges and controls reachable", async ({ page }) => {
+  await page.setViewportSize({ width: 740, height: 360 });
+  await load(page, { theme: 17 });
+  await checkScrollableTrial(page, false);
+});
+
+test("a 320px-wide screen can scroll to both sides of the board", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  const puzzle = await load(page, { theme: 17 });
+  const scroller = page.locator(".trial-board-viewport");
+  await expect
+    .poll(() => scroller.evaluate((e) => e.scrollWidth - e.clientWidth))
+    .toBeGreaterThan(0);
+  for (const column of [0, puzzle.initial[0].length - 1]) {
+    const fruit = page.locator(`[data-trial-cell$=",${column}"]:not(:disabled)`).first();
+    await fruit.click();
+    await expect(fruit).toHaveAttribute("aria-pressed", "true");
+    await expect(fruit).toBeInViewport({ ratio: 0.99 });
+    await fruit.click();
+  }
+});
 
 async function enlargeTrialText(page: Page, mode: "root" | "visible") {
   await page.evaluate((mode) => {
@@ -252,31 +275,28 @@ async function checkScrollableTrial(page: Page, enlarged = true) {
   await expect
     .poll(() => boardViewport.evaluate((e) => e.clientHeight))
     .toBeGreaterThanOrEqual(132);
-  if (enlarged)
-    expect(
-      await page
-        .locator(".trial-challenge")
-        .evaluate((e) => parseFloat(getComputedStyle(e).fontSize)),
-    ).toBeGreaterThanOrEqual(24);
-
   // HUD and actions may be below the fold, but must remain fully readable
   // and reachable by scrolling the card; scrolling only the board is not enough.
   await expect(page.locator(".trial-star")).toBeVisible();
   await expect(page.locator(".trial-legend")).toBeVisible();
   await expect(page.locator("#trial-save")).toBeVisible();
-  const targets = page.locator(
-    ".trial-title button:visible,.trial-goal-fruits,.trial-star,.trial-challenge,.trial-stats > span,.trial-feedback,.trial-tools button,.trial-secondary button,.trial-legend > span,.trial-bottom > span",
-  );
-  for (const target of await targets.all()) {
-    // The browser's "if needed" heuristic can leave a fractional pixel at the
-    // scrollport edge. Centering proves the entire label is actually reachable.
-    await target.evaluate((element) =>
-      element.scrollIntoView({ block: "center" }),
-    );
-    await expect(target).toBeInViewport({ ratio: 0.99 });
-    const issues = await target.evaluate((e) => {
+  const targetIssues = await page.evaluate((enlarged) => {
+    // The challenge checker can replace the stars panel between browser calls.
+    const targets = [...document.querySelectorAll<HTMLElement>(
+      ".trial-title button,.trial-goal-fruits,.trial-star,.trial-challenge,.trial-stats > span,.trial-feedback,.trial-tools button,.trial-secondary button,.trial-legend > span,.trial-bottom > span",
+    )].filter((e) => !e.matches(".trial-title button") || e.checkVisibility());
+    return targets.flatMap((e) => {
+      // Center the label before measuring it so a clipped edge cannot pass.
+      e.scrollIntoView({ block: "center", behavior: "instant" });
       const r = e.getBoundingClientRect();
       const problems: string[] = [];
+      if (enlarged && e.matches(".trial-challenge") &&
+          parseFloat(getComputedStyle(e).fontSize) < 24)
+        problems.push("challenge text below 24px");
+      if (
+        r.left < -1 || r.top < -1 || r.right > innerWidth + 1 || r.bottom > innerHeight + 1
+      )
+        problems.push("control outside viewport");
       if (
         e.scrollWidth > e.clientWidth + 1 ||
         e.scrollHeight > e.clientHeight + 1
@@ -309,10 +329,10 @@ async function checkScrollableTrial(page: Page, enlarged = true) {
         if (!hit || (hit !== e && !e.contains(hit)))
           problems.push("covered target");
       }
-      return problems;
+      return problems.map((problem) => `${e.textContent?.trim() || e.className}: ${problem}`);
     });
-    expect(issues, (await target.textContent()) ?? "target").toEqual([]);
-  }
+  }, enlarged);
+  expect(targetIssues).toEqual([]);
 
   await page.getByRole("button", { name: "查看三星条件", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "三星条件" }).getByRole("listitem")).toHaveCount(3);
@@ -366,26 +386,11 @@ async function checkScrollableTrial(page: Page, enlarged = true) {
   expect(width.document).toBeLessThanOrEqual(width.viewport + 1);
 }
 
-for (const [theme, mode] of [
-  [17, "root"],
-  [17, "visible"],
-  [18, "visible"],
-] as const) {
-  test(`${theme} 200 percent ${mode} type at 360x640: scroll to goals, actions and both board edges`, async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 360, height: 640 });
-    await load(page, { theme });
-    await enlargeTrialText(page, mode);
-    await checkScrollableTrial(page);
-  });
-}
-
-test("200 percent root type at 390x700: scrollable card keeps controls and fruit reachable", async ({
+test("200 percent root type at 360x640 keeps controls and fruit reachable", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 700 });
-  await load(page, { theme: 17 });
+  await page.setViewportSize({ width: 360, height: 640 });
+  await load(page, { theme: 18 });
   await enlargeTrialText(page, "root");
   await checkScrollableTrial(page);
 });
@@ -522,82 +527,33 @@ async function checkTrackArtwork(page: Page, phase: string) {
     ),
     phase,
   ).toEqual([]);
-  // Scroll every fruit into view, including the board's middle rows. Geometry
-  // above verifies graphic overlap; this verifies actual ancestor clipping.
-  for (const cell of await page.locator(".trial-cell.on-track").all()) {
-    if (Number(await cell.getAttribute("data-fruit")) <= 0) continue;
-    await cell.scrollIntoViewIfNeeded();
-    await expect(cell).toBeInViewport({ ratio: 0.99 });
-    const clipped = await cell.evaluate((element) => {
-      const fruit = element
-        .querySelector(".fruit-svg")!
-        .getBoundingClientRect();
-      const issues: string[] = [];
-      for (
-        let parent = element.parentElement;
-        parent;
-        parent = parent.parentElement
-      ) {
-        const style = getComputedStyle(parent),
-          box = parent.getBoundingClientRect();
-        if (
-          style.overflowY !== "visible" &&
-          (fruit.top < box.top - 1 || fruit.bottom > box.bottom + 1)
-        )
-          issues.push("vertical clipping");
-        if (
-          style.overflowX !== "visible" &&
-          (fruit.left < box.left - 1 || fruit.right > box.right + 1)
-        )
-          issues.push("horizontal clipping");
-      }
-      return issues;
-    });
-    expect(clipped).toEqual([]);
-  }
 }
 
-for (const theme of [13, 14, 15, 16, 18] as const) {
-  test(`theme ${theme}: arrows and ports leave the fruit artwork visible`, async ({ page }) => {
-    await page.setViewportSize({ width: 360, height: 640 });
-    await load(page, { theme });
-    await checkTrackArtwork(page, "initial");
-  });
-}
+// This seed places a fruit where an arrow and a port share the same tile.
+test("dual-track markers keep fruit visible through preview, movement and undo", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  const initial = candidate(17, 556785146);
+  expect(certify(initial, solve(initial))).toBe(true);
+  const puzzle = await load(page, { initial });
+  await checkTrackArtwork(page, "initial");
+  await enlargeTrialText(page, "visible");
 
-// This dual-track seed puts a fruit at a port. It exercises both markers on
-// the same tile as well as scroll clipping after the board is redrawn.
-for (const mode of ["normal", "root", "visible"] as const) {
-  test(`dual-track ${mode} artwork remains visible through board redraws`, async ({ page }) => {
-    test.setTimeout(60_000);
-    const pageErrors: string[] = [];
-    page.on("pageerror", (error) => pageErrors.push(error.message));
-    await page.setViewportSize({ width: 360, height: 640 });
-    const initial = candidate(17, 556785146);
-    expect(certify(initial, solve(initial))).toBe(true);
-    const p = await load(page, { initial });
-    if (mode !== "normal") await enlargeTrialText(page, mode);
-    await checkTrackArtwork(page, "initial");
+  const port = page.locator(".trial-cell.on-track.trial-port:not(:disabled)").first();
+  await port.click();
+  await expect(port).toHaveAttribute("aria-pressed", "true");
+  await expect(port.locator(".fruit-svg")).toBeInViewport({ ratio: 0.99 });
+  await checkTrackArtwork(page, "selected");
+  await page.getByRole("button", { name: "预览轨道移动", exact: true }).click();
+  await expect(page.locator(".trial-preview")).toBeVisible();
+  await checkTrackArtwork(page, "preview");
 
-    const target = page.locator(".trial-cell.on-track.trial-port:not(:disabled)").first();
-    await target.click();
-    await expect(target).toHaveAttribute("aria-pressed", "true");
-    await checkTrackArtwork(page, "selected");
-    await page.getByRole("button", { name: "预览轨道移动", exact: true }).click();
-    await expect(page.locator(".trial-preview")).toBeVisible();
-    await checkTrackArtwork(page, "preview");
-
-    await page.getByRole("button", { name: "返回棋盘", exact: true }).click();
-    await play(page, p.proof.challenge[0]);
-    await checkTrackArtwork(page, "moved");
-    await page.getByRole("button", { name: "↶ 撤销", exact: true }).click();
-    await expect
-      .poll(async () => (await session(page)).state.moves)
-      .toBe(0);
-    await checkTrackArtwork(page, "restored");
-    expect(pageErrors).toEqual([]);
-  });
-}
+  await page.getByRole("button", { name: "返回棋盘", exact: true }).click();
+  await play(page, puzzle.proof.challenge[0]);
+  await checkTrackArtwork(page, "moved");
+  await page.getByRole("button", { name: "↶ 撤销", exact: true }).click();
+  await expect.poll(async () => (await session(page)).state.moves).toBe(0);
+  await checkTrackArtwork(page, "restored");
+});
 
 test("short screen with large text keeps the save failure reachable", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 540 });

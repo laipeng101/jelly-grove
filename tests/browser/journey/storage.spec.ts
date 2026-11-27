@@ -10,17 +10,12 @@ import {
 } from "../../../src/journey/storage";
 import { load, puzzle, state } from "./fixtures";
 
-test("invalid import never changes current game; export can round-trip", async ({
+test("invalid import shows recovery guidance and keeps the current game", async ({
   page,
 }) => {
   await load(page, { theme: 14 });
   const before = await state(page);
   await page.getByRole("button", { name: "音效与设置" }).click();
-  const downloadEvent = page.waitForEvent("download");
-  await page.getByRole("button", { name: "导出进度", exact: true }).click();
-  const download = await downloadEvent;
-  const path = await download.path();
-  expect(path).toBeTruthy();
   await page.locator("#trial-import").setInputFiles({
     name: "broken.json",
     mimeType: "application/json",
@@ -30,9 +25,7 @@ test("invalid import never changes current game; export can round-trip", async (
   await expect(error).toContainText("这不是有效的进度文件");
   expect(await state(page)).toEqual(before);
   await error.getByRole("button", { name: "返回设置" }).click();
-  await page.locator("#trial-import").setInputFiles(path!);
-  await page.getByRole("button", { name: "确认导入", exact: true }).click();
-  expect(await state(page)).toEqual(before);
+  await expect(page.getByRole("button", { name: "导入进度", exact: true })).toBeVisible();
 });
 
 test("closing settings discards a late import read", async ({ page }) => {

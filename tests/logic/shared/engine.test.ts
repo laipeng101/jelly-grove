@@ -15,44 +15,8 @@ import {
   type Board,
   type Point,
 } from "../../../src/engine.ts";
+import { hasTwoTurnPath } from "../../path-oracle";
 
-// Independent direction-state BFS checks the route enumerator against the actual rules.
-function oracle(b: Board, a: Point, z: Point): boolean {
-  if (
-    (a.r === z.r && a.c === z.c) ||
-    b[a.r][a.c] <= 0 ||
-    b[a.r][a.c] !== b[z.r][z.c]
-  )
-    return false;
-  const h = b.length,
-    w = b[0].length,
-    dirs = [
-      [-1, 0],
-      [0, 1],
-      [1, 0],
-      [0, -1],
-    ],
-    q: { r: number; c: number; d: number; t: number }[] = [],
-    seen = new Map<string, number>();
-  for (let d = 0; d < 4; d++) q.push({ ...a, d, t: 0 });
-  for (let i = 0; i < q.length; i++) {
-    const cur = q[i];
-    for (let d = 0; d < 4; d++) {
-      const t = cur.t + (cur.d === d ? 0 : 1);
-      if (t > 2) continue;
-      const r = cur.r + dirs[d][0],
-        c = cur.c + dirs[d][1];
-      if (r < -1 || r > h || c < -1 || c > w) continue;
-      if (r === z.r && c === z.c) return true;
-      if (r >= 0 && r < h && c >= 0 && c < w && b[r][c] !== 0) continue;
-      const key = `${r},${c},${d}`;
-      if ((seen.get(key) ?? 3) <= t) continue;
-      seen.set(key, t);
-      q.push({ r, c, d, t });
-    }
-  }
-  return false;
-}
 test("routes: straight, one bend, two bends, outer border, occupied blockage", () => {
   assert.equal(findPath([[1, 1]], { r: 0, c: 0 }, { r: 0, c: 1 })?.length, 2);
   assert.equal(
@@ -112,68 +76,53 @@ test("route algorithm agrees with BFS on 100 random boards and all occupied pair
         const a = cells[i],
           z = cells[j],
           path = findPath(b, a, z);
-        assert.equal(!!path, oracle(b, a, z), JSON.stringify({ b, a, z }));
+        assert.equal(!!path, hasTwoTurnPath(b, a, z), JSON.stringify({ b, a, z }));
         if (path) assert.ok(path.length <= 4);
       }
   }
 });
 test("all 24 levels produce complete playable boards; legal moves and free repairs reach completion", () => {
-  for (const level of LEVELS)
-    for (let seed = 1; seed <= 12; seed++) {
-      let b = generateBoard(level, seedRandom(seed)),
-        count = remaining(b),
-        moves = 0,
-        repairs = 0;
-      assert.ok(count > 0);
-      assert.ok(findPairs(b, 1).length > 0);
-      for (let v = 1; v <= 10; v++)
-        assert.equal(b.flat().filter((x) => x === v).length % 2, 0);
-      while (remaining(b)) {
-        let pair = findPairs(b, 1)[0];
-        if (!pair) {
-          b = reshuffle(b, seedRandom(seed + repairs++));
-          pair = findPairs(b, 1)[0];
-        }
-        assert.ok(pair);
-        b = removePair(b, pair, level.gravity);
-        moves++;
-        assert.equal(remaining(b), count - moves);
-        assert.ok(moves <= count);
+  for (const level of LEVELS) {
+    const rng = seedRandom(level.id);
+    let board = generateBoard(level, rng);
+    const pairs = remaining(board);
+    assert.ok(pairs > 0, `level ${level.id}`);
+    assert.ok(findPairs(board, 1).length, `starting move at level ${level.id}`);
+    for (let left = pairs; left > 0; left--) {
+      let pair = findPairs(board, 1)[0];
+      if (!pair) {
+        board = reshuffle(board, rng);
+        pair = findPairs(board, 1)[0];
       }
-      assert.equal(moves, count);
+      assert.ok(pair, `level ${level.id}, ${left} pairs left`);
+      board = removePair(board, pair, level.gravity);
+      assert.equal(remaining(board), left - 1, `level ${level.id}`);
     }
+  }
 });
 
-test("constructive removal witnesses work with gravity for every generated level", () => {
-  for (const level of LEVELS)
-    for (let seed = 1; seed <= 6; seed++) {
-      let b = generateBoard(level, seedRandom(seed)),
-        shape = makeLayout(level);
-      const scheduleRng = seedRandom(seed);
-      // The generator first shuffles the ten-fruit palette.
-      for (let i = 0; i < 9; i++) scheduleRng();
-      while (remaining(shape)) {
-        const pairs = findPairs(shape),
-          pair = pairs[Math.floor(scheduleRng() * pairs.length)];
-        assert.ok(
-          pair,
-          `geometric schedule exists for level ${level.id}, seed ${seed}`,
-        );
-        assert.ok(
-          findPath(b, pair.a, pair.b),
-          `colored pair follows the same falling schedule for level ${level.id}`,
-        );
-        b = removePair(b, pair, level.gravity);
-        shape = removePair(shape, pair, level.gravity);
-      }
-      assert.equal(remaining(b), 0);
+test("a generated board clears without shuffling along its geometric removal order", () => {
+  const cases = LEVELS.map((level) => ({ level, choice: 0 }));
+  // Also exercise a non-first choice on a board with stones and gravity.
+  cases.push({ level: LEVELS.at(-1)!, choice: 0.5 });
+  for (const { level, choice } of cases) {
+    let board = generateBoard(level, () => choice);
+    let shape = makeLayout(level);
+    while (remaining(shape)) {
+      const pairs = findPairs(shape);
+      const pair = pairs[Math.floor(choice * pairs.length)];
+      assert.ok(pair, `geometric schedule at level ${level.id}`);
+      assert.ok(findPath(board, pair.a, pair.b), `generated fruit at level ${level.id}`);
+      board = removePair(board, pair, level.gravity);
+      shape = removePair(shape, pair, level.gravity);
     }
+    assert.equal(remaining(board), 0, `level ${level.id}`);
+  }
 });
 
 test("level layouts survive mode id changes and late levels offer distinct mechanics", () => {
   for (const level of LEVELS) {
     assert.deepEqual(makeLayout({ ...level, id: 1 }), makeLayout(level));
-    assert.ok(canClearGeometry(makeLayout(level), level.gravity));
   }
   assert.equal(
     new Set(

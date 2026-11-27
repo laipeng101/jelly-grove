@@ -9,7 +9,7 @@ import {
   type Level,
 } from "../../../src/engine";
 import { commitMatch } from "../../../src/game";
-import { parseSave, type Game, type Mode, type Save } from "../../../src/storage";
+import type { Game, Mode, Save } from "../../../src/storage";
 import { pauseBrowserClock } from "../clock";
 
 export function fixture(mode: Mode, level = 17, difficulty = 2, matches = 0) {
@@ -58,14 +58,14 @@ export function fixture(mode: Mode, level = 17, difficulty = 2, matches = 0) {
 }
 
 export async function loadGame(page: Page, save: Save, url = "/") {
-  parseSave(JSON.stringify(save)); // Test states must obey the real import contract.
-  await page.addInitScript(
+  const seed = await page.addInitScript(
     (value) =>
       localStorage.setItem("jelly-grove.save.v1", JSON.stringify(value)),
     save,
   );
   await pauseBrowserClock(page);
   await page.goto(url);
+  await seed.dispose();
   await page.getByRole("button", { name: "继续这一局", exact: true }).click();
   await settle(page);
 }

@@ -28,6 +28,7 @@ import {
   writeJourneySave,
 } from "../../../src/journey/storage";
 import type { Move, Puzzle, Stage } from "../../../src/journey/types";
+import { hasTwoTurnPath } from "../../path-oracle";
 
 const move = (r: number, c: number, rr: number, cc: number): Move => ({
   a: { r, c },
@@ -680,48 +681,6 @@ test("structural validation rejects crossed tracks, stone tracks, insufficient f
 });
 
 test("independent small-board exhaustive model checks paths, quota protection, movement, credit and terminal states", () => {
-  // A grid-search oracle independent of engine.findPath and the production transition.
-  const connected = (board: Board, action: Move): boolean => {
-    const { a, b } = action,
-      h = board.length,
-      w = board[0].length;
-    if (board[a.r][a.c] <= 0 || board[a.r][a.c] !== board[b.r][b.c])
-      return false;
-    const directions = [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ];
-    const queue = [{ r: a.r, c: a.c, d: -1, turns: 0 }],
-      seen = new Set<string>();
-    for (let i = 0; i < queue.length; i++) {
-      const p = queue[i];
-      if (p.r === b.r && p.c === b.c) return true;
-      for (let d = 0; d < 4; d++) {
-        const r = p.r + directions[d][0],
-          c = p.c + directions[d][1],
-          turns = p.turns + Number(p.d !== -1 && d !== p.d);
-        if (turns > 2 || r < -1 || c < -1 || r > h || c > w) continue;
-        if (r === a.r && c === a.c) continue;
-        if (
-          r >= 0 &&
-          r < h &&
-          c >= 0 &&
-          c < w &&
-          board[r][c] !== 0 &&
-          !(r === b.r && c === b.c)
-        )
-          continue;
-        const key = [r, c, d, turns].join();
-        if (!seen.has(key)) {
-          seen.add(key);
-          queue.push({ r, c, d, turns });
-        }
-      }
-    }
-    return false;
-  };
   const actions = (board: Board): Move[] => {
     const result: Move[] = [];
     for (let i = 0; i < 6; i++)
@@ -730,7 +689,7 @@ test("independent small-board exhaustive model checks paths, quota protection, m
         const fruit = board[action.a.r][action.a.c],
           targetCredit = fruit === 1 && (i === 0 || j === 0);
         if (
-          connected(board, action) &&
+          hasTwoTurnPath(board, action.a, action.b) &&
           (fruit !== 1 ||
             targetCredit ||
             board.flat().filter((v) => v === 1).length >= 4)

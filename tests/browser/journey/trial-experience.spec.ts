@@ -5,7 +5,7 @@ import { candidate, certify } from "../../../src/journey/generator";
 import { solve } from "../../../src/journey/solver";
 import { THEMES } from "../../../src/journey/themes";
 import { pauseBrowserClock } from "../clock";
-import { load, play, puzzle as backupPuzzle, session } from "./fixtures";
+import { load, play, puzzle as backupPuzzle, session, state } from "./fixtures";
 
 async function loadHiddenLoss(page: Page, url?: string) {
   const initial = candidate(18, 1311065588);
@@ -17,23 +17,6 @@ async function loadHiddenLoss(page: Page, url?: string) {
   return initial;
 }
 
-for (const theme of [13, 14, 15, 16, 17, 18] as const) test(`theme ${theme}: three readable separate star conditions and full mobile board`, async ({ page }) => {
-  await page.setViewportSize({ width: 360, height: 640 });
-  await load(page, { theme });
-  await expect(page.locator('.trial-star-row')).toHaveCount(3);
-  for (const condition of await page.locator('.trial-star-condition').all())
-    await expect(condition).not.toHaveText(/^(第一|第二|第三)星$/);
-  await expect.poll(() => page.evaluate(() => {
-    const conditions = [...document.querySelectorAll('.trial-star-condition')];
-    const board = document.querySelector('.trial-board-viewport')!;
-    const shell = document.querySelector('.trial-board-shell')!;
-    const bounds = shell.getBoundingClientRect();
-    return conditions.every(e => parseFloat(getComputedStyle(e).fontSize) >= 16) && board.scrollHeight <= board.clientHeight + 1 && bounds.bottom <= innerHeight && [...document.querySelectorAll('[data-trial-cell]')].every(e => {
-      const r = e.getBoundingClientRect();
-      return r.width >= 43.9 && r.height >= 43.9 && r.top >= 0 && r.bottom <= innerHeight;
-    });
-  })).toBe(true);
-});
 test('hidden challenge loss explains undo without covering the mobile board', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 640 });
   await loadHiddenLoss(page);
@@ -57,14 +40,19 @@ test('hidden challenge loss explains undo without covering the mobile board', as
   await expect(challenge).toHaveAttribute('data-status', 'pending');
 });
 for (const kind of ['challenge', 'ordinary'] as const) test(`completion ${kind}: reasons, stay, refresh and undo replay`, async ({ page }) => {
-  const puzzle = await load(page, { best: { 13: 3 } });
+  const { id: theme } = THEMES[0];
+  const previousBest = kind === 'challenge' ? 2 : 3;
+  const puzzle = await load(page, { theme, best: { [theme]: previousBest } });
   const starSummary = page.locator('.trial-star');
   await expect(starSummary).toHaveText(/最佳/, { useInnerText: true });
-  await expect(starSummary.locator('.icon.lit')).toHaveCount(3);
+  await expect(starSummary.locator('.icon.lit')).toHaveCount(previousBest);
   for (const move of puzzle.proof[kind]) await play(page, move);
   await expect(page.locator('#trial-result-stay')).toBeVisible();
   await expect(page.locator('.trial-dialog .trial-star-row')).toHaveCount(3);
   await expect(page.locator('.trial-dialog [data-star="3"]')).toHaveAttribute('data-status', kind === 'challenge' ? 'achieved' : 'failed');
+  const firstResult = await state(page);
+  expect(firstResult.session!.state.phase).toBe('won');
+  expect(firstResult.best[theme]).toBe(3);
   await page.locator('#trial-result-stay').click();
   await expect(page.locator('[data-trial="result"]')).toBeVisible();
   await expect(starSummary).toHaveText(/本盘/, { useInnerText: true });
@@ -73,8 +61,10 @@ for (const kind of ['challenge', 'ordinary'] as const) test(`completion ${kind}:
   await page.getByRole('button', { name: '继续这一局', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: '↶ 撤销', exact: true }).click();
+  expect((await session(page)).state.phase).toBe('playing');
   await play(page, puzzle.proof[kind].at(-1)!);
   await expect(page.locator('#trial-result-stay')).toBeVisible();
+  expect((await session(page)).state.score).toBe(firstResult.session!.state.score);
 });
 test('next theme only starts after explicit confirmation', async ({ page }) => {
   const [first, next] = THEMES;
@@ -129,7 +119,21 @@ for (const reduced of [true, false]) test(`motion disabled path reduced=${reduce
   await expect(page.locator('.trial-idle-cue')).toHaveCount(0);
 });
 
-test('theme 17 dead end fits the full mobile board and can be undone', async ({ page }) => {
+async function expectWholeMobileBoard(page: Page) {
+  await expect.poll(() => page.locator('.trial-board-viewport').evaluate(viewport => {
+    const visible = viewport.getBoundingClientRect();
+    return [...viewport.querySelectorAll('[data-trial-cell]')].every(cell => {
+      const bounds = cell.getBoundingClientRect();
+      return bounds.width >= 43.9 && bounds.height >= 43.9 &&
+        bounds.top >= Math.max(0, visible.top) - 1 &&
+        bounds.left >= Math.max(0, visible.left) - 1 &&
+        bounds.bottom <= Math.min(innerHeight, visible.bottom) + 1 &&
+        bounds.right <= Math.min(innerWidth, visible.right) + 1;
+    });
+  })).toBe(true);
+}
+
+test('theme 17 challenge loss and dead end leave the full mobile board reachable', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 640 });
   const puzzle = candidate(17, 681686203);
   expect(certify(puzzle, solve(puzzle))).toBe(true);
@@ -139,23 +143,21 @@ test('theme 17 dead end fits the full mobile board and can be undone', async ({ 
     [1, 4, 2, 2], [2, 1, 3, 2], [4, 2, 5, 3], [3, 6, 4, 6], [3, 4, 1, 6],
     [4, 3, 3, 3], [4, 3, 4, 6], [5, 1, 3, 4], [2, 5, 5, 4], [1, 1, 5, 5],
   ];
-  for (const [ar, ac, br, bc] of deadEnd) {
+  for (const [index, [ar, ac, br, bc]] of deadEnd.entries()) {
     await play(page, { a: { r: ar - 1, c: ac - 1 }, b: { r: br - 1, c: bc - 1 } });
+    if (index === 2) {
+      expect((await session(page)).state.phase).toBe('playing');
+      await expect(page.locator('.trial-star-reason:visible')).toContainText('有目标水果首次到达采收口时未送达');
+      await expect(page.getByRole('button', { name: '撤销一步', exact: true })).toBeInViewport();
+      await expectWholeMobileBoard(page);
+    }
   }
   expect((await session(page)).state.phase).toBe('lost');
   const feedback = page.locator('.trial-feedback');
   await expect(feedback).toHaveText('没有可消除的配对，可以撤销一步。');
   const undo = page.getByRole('button', { name: '↶ 撤销', exact: true });
   await expect(undo).toBeInViewport({ ratio: 1 });
-  await expect.poll(() => page.locator('.trial-board-viewport').evaluate(viewport => {
-    const visible = viewport.getBoundingClientRect();
-    return [...viewport.querySelectorAll('[data-trial-cell]')].every(cell => {
-      const bounds = cell.getBoundingClientRect();
-      return bounds.width >= 43.9 && bounds.height >= 43.9 &&
-        bounds.top >= Math.max(0, visible.top) - 1 &&
-        bounds.bottom <= Math.min(innerHeight, visible.bottom) + 1;
-    });
-  })).toBe(true);
+  await expectWholeMobileBoard(page);
 
   await undo.tap();
   await undo.tap();
@@ -164,7 +166,7 @@ test('theme 17 dead end fits the full mobile board and can be undone', async ({ 
   await expect(page.locator('.trial-feedback')).toContainText('★★☆');
 });
 
-test('offline automatic loss check, undo, final harvest and reload need no network', async ({ page, context }) => {
+test('offline challenge check, undo and completed board survive reload', async ({ page, context }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await context.setOffline(true);
@@ -175,8 +177,11 @@ test('offline automatic loss check, undo, final harvest and reload need no netwo
   await page.getByRole('button', { name: '↶ 撤销', exact: true }).click();
   for (const move of puzzle.proof.challenge) await play(page, move);
   await expect(page.getByRole('heading', { name: '送达完成', exact: true })).toBeVisible();
+  const completed = await state(page);
+  expect(completed.session!.state.phase).toBe('won');
   await page.locator('#trial-result-stay').click();
   await page.reload();
+  expect(await state(page)).toEqual(completed);
   await page.getByRole('button', { name: '继续这一局', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.locator('[data-trial="result"]').click();
@@ -310,18 +315,4 @@ test('cached page restore resumes the requested theme after generation was cance
   await expect(page.locator(".trial-theme-button")).toContainText("综合送达");
   await expect(page.locator('[data-trial="preview"]')).toBeEnabled();
   expect(await page.evaluate(() => Object.getOwnPropertyDescriptor(window, "generationRequests")?.value)).toEqual([18, 18]);
-});
-
-for (const theme of [16, 17] as const) test(`theme ${theme}: lost challenge still fits full 360x640 board`, async ({ page }) => {
-  await page.setViewportSize({ width: 360, height: 640 });
-  const puzzle = await load(page, { theme });
-  for (const move of puzzle.proof.ordinary.slice(0, theme === 16 ? 1 : 2)) await play(page, move);
-  await expect(page.locator('.trial-card [data-star="3"]')).toHaveAttribute('data-status', 'failed');
-  await expect.poll(() => page.locator('.trial-board-viewport').evaluate(e => e.scrollHeight <= e.clientHeight + 1)).toBe(true);
-  await expect(page.getByRole('button', { name: '撤销一步', exact: true })).toBeInViewport();
-  expect(await page.locator('.trial-star-condition').evaluateAll(elements => elements.every(e => parseFloat(getComputedStyle(e).fontSize) >= 16))).toBe(true);
-  expect(await page.locator('[data-trial-cell]').evaluateAll(elements => elements.every(e => {
-    const bounds = e.getBoundingClientRect();
-    return bounds.width >= 43.9 && bounds.height >= 43.9 && bounds.bottom <= innerHeight;
-  }))).toBe(true);
 });

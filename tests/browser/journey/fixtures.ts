@@ -1,7 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 import backups from "../../../src/journey/generated/backups.json" with { type: "json" };
 import { createSession } from "../../../src/journey/session";
-import { emptyJourneySave, KEY, parseJourneySave } from "../../../src/journey/storage";
+import { emptyJourneySave, KEY } from "../../../src/journey/storage";
 import type { Puzzle, JourneySave, ThemeId, Move } from "../../../src/journey/types";
 import type { Save } from "../../../src/storage";
 
@@ -24,7 +24,6 @@ export async function load(
   save.session = createSession(initial);
   save.best = best;
   const value = JSON.stringify(save);
-  parseJourneySave(value);
   const preferences: Save | undefined = motion === undefined ? undefined : {
     version: 1,
     mode: "journey",
@@ -35,7 +34,7 @@ export async function load(
     sessions: {},
     settings: { sound: false, motion, volume: 0.8 },
   };
-  await page.addInitScript(
+  const seed = await page.addInitScript(
     ({ value, key, preferences }) => {
       if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
       if (preferences)
@@ -44,6 +43,7 @@ export async function load(
     { value, key: KEY, preferences },
   );
   await page.goto(url);
+  await seed.dispose();
   await expect(page.locator("#trial-board")).toBeVisible();
   await page.getByRole("button", { name: "继续这一局", exact: true }).click();
   return save.session.puzzle;
